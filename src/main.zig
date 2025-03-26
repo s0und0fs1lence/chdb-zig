@@ -21,7 +21,11 @@ pub fn main() !void {
     var buffer: [100:0]u8 = undefined; // Sentinel 0 ensures null termination
     const slice = try std.fmt.bufPrint(&buffer, "select 1 as a,2 as b", .{});
     const res = try conn.query(slice, @constCast("JSONEachRow"));
-    std.debug.print("{*}\n", .{res});
+    const row = try res.next();
+
+    const val = row.get(i64, "a");
+
+    std.debug.print("{*}", .{val});
 }
 
 test "simple test" {
