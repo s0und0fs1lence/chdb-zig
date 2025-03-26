@@ -5,15 +5,88 @@ const chdb = @cImport({
 
 pub const ChError = error{
     NotValid,
+    NotFound,
+    TypeMismatch,
+};
+
+pub const JsonLineIterator = struct {
+    buffer: [*c]u8, // The entire JSON buffer to be processed
+    lines: std.mem.SplitIterator([*c]u8, std.mem.DelimiterType.scalar), // An iterator that yields each line from the buffer
+    allocator: std.mem.Allocator, // An allocator to be used for parsing JSON within each line
+    pub fn init(buffer: [*c]u8, allocator: std.mem.Allocator) JsonLineIterator {
+        return .{
+            .buffer = buffer,
+            .lines = std.mem.splitScalar([*c]u8, buffer, '\n'),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn next(self: *JsonLineIterator) ?Row {
+        if (self.lines.next()) |line| {
+            const parsed_value = try std.json.parseFromSlice(std.json.Value, self.allocator, line, .{});
+            // Attempt to parse the current line as a JSON object using std.json.parseFromSlice
+            return Row{ .value = parsed_value };
+        }
+        return null; // Signal the end of the buffer
+    }
+};
+
+pub const Row = struct {
+    value: std.json.Parsed(std.json.Value), // Holds the parsed JSON value for the current line
+    pub fn deinit(self: *Row) void {
+        self.value.deinit();
+    }
+    pub fn get(self: *Row, comptime T: type, name: []const u8) ?*T {
+        const json_value = self.value.value.object.get(name) orelse {
+            return error.NotFound;
+        };
+        return switch (@typeInfo(T)) {
+            .Int => switch (json_value.kind) {
+                .integer => @as(T, json_value.integer),
+                else => return error.TypeMismatch,
+            },
+            .Float => switch (json_value.kind) {
+                .float => @as(T, json_value.float),
+                else => return error.TypeMismatch,
+            },
+            .Bool => switch (json_value.kind) {
+                .boolean => json_value.boolean,
+                else => return error.TypeMismatch,
+            },
+            .Optional => |optional_info| {
+                const ElementType = optional_info.child;
+                if (json_value.kind == .nil) {
+                    return null;
+                } else {
+                    return self.get(ElementType, name); // Recursive call for nested optionals
+                }
+            },
+            .Slice => |slice_info| {
+                if (slice_info.child == u8) {
+                    return switch (json_value.kind) {
+                        .string => @as(T, json_value.string),
+                        else => return error.TypeMismatch,
+                    };
+                } else {
+                    @compileError("Unsupported slice type");
+                }
+            },
+            else => @compileError("Unsupported type for get"),
+        };
+    }
 };
 
 pub const ChQueryResult = struct {
     res: [*c]chdb.local_result_v2,
     alloc: std.mem.Allocator,
+    iter: JsonLineIterator,
     fn new(r: [*c]chdb.local_result_v2, alloc: std.mem.Allocator) !*ChQueryResult {
         var instance = try alloc.create(ChQueryResult);
         instance.res = r;
+
         instance.alloc = alloc;
+        instance.iter = JsonLineIterator.init(instance.res.*.buf, instance.alloc);
+        // instance.iter = JsonLineIterator.init(, allocator: std.mem.Allocator)
         return instance;
     }
     pub fn next(self: *ChQueryResult) void {
@@ -58,11 +131,11 @@ pub const ChConn = struct {
         }
         const conn = chdb.connect_chdb(@intCast(argv.len), @ptrCast(argv.ptr));
 
-        instance.conn = conn;
         if (conn == null) {
             std.debug.print("Connection failed\n", .{});
-            return instance;
+            return error.NotValid;
         }
+        instance.conn = conn;
 
         return instance;
     }

@@ -11,7 +11,11 @@ pub fn main() !void {
     // stdout, not any debugging messages.
 
     const alloc = std.heap.smp_allocator;
-    const conn = try c.ChConn.new(alloc, "--path=/tmp/chdb&readonly=1");
+    const conn = c.ChConn.new(alloc, "--path=/tmp/chdb&readonly=1") catch |err| {
+        std.debug.print("Error: {}\n", .{err});
+        return err;
+    };
+
     defer conn.deinit();
     std.debug.print("{*}\n", .{conn});
     var buffer: [100:0]u8 = undefined; // Sentinel 0 ensures null termination
