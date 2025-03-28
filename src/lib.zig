@@ -21,60 +21,51 @@ pub const JsonLineIterator = struct {
         };
     }
 
-    pub fn next(self: *JsonLineIterator) !*Row {
+    pub fn next(self: *JsonLineIterator) ?*Row {
         if (self.lines.next()) |line| {
-            const parsed_value = try std.json.parseFromSlice(std.json.Value, self.allocator, line, .{});
+            const parsed_value = std.json.parseFromSlice(std.json.Value, self.allocator, line, .{}) catch {
+                return null;
+            };
             // Attempt to parse the current line as a JSON object using std.json.parseFromSlice
-            const r = try self.allocator.create(Row);
+            const r = self.allocator.create(Row) catch {
+                return null;
+            };
             r.value = parsed_value;
             return r;
         }
-        return error.NotValid; // Signal the end of the buffer
+        return null; // Signal the end of the buffer
     }
 };
 
 pub const Row = struct {
     value: std.json.Parsed(std.json.Value), // Holds the parsed JSON value for the current line
+
     pub fn deinit(self: *Row) void {
         self.value.deinit();
     }
-    pub fn get(self: *Row, comptime T: type, name: []const u8) ?*T {
+    pub fn columns(self: *Row) [][]const u8 {
+        // TODO: clone the keys
+        return self.value.value.object.keys();
+    }
+    pub fn get(self: *Row, comptime T: type, name: []const u8) ?T {
         const json_value = self.value.value.object.get(name) orelse {
             return null;
         };
-
-        return switch (@typeInfo(T)) {
-            .std.builtin.Type.Int => switch (json_value.kind) {
-                .integer => @as(T, json_value.integer),
-                else => return null,
-            },
-            .std.builtin.Type.Float => switch (json_value.kind) {
-                .float => @as(T, json_value.float),
-                else => return null,
-            },
-            .std.builtin.Type.Bool => switch (json_value.kind) {
-                .boolean => json_value.boolean,
-                else => return null,
-            },
-            .std.builtin.Type.Optional => |optional_info| {
-                const ElementType = optional_info.child;
-                if (json_value.kind == .nil) {
-                    return null;
-                } else {
-                    return self.get(ElementType, name); // Recursive call for nested optionals
-                }
-            },
-            .std.builtin.Type.Slice => |slice_info| {
-                if (slice_info.child == u8) {
-                    return switch (json_value.kind) {
-                        .string => @as(T, json_value.string),
-                        else => null,
-                    };
-                } else {
-                    @compileError("Unsupported slice type");
-                }
-            },
-            else => @compileError("Unsupported type for get"),
+        return switch (T) {
+            u8 => @as(T, json_value.string),
+            i8 => @as(T, @intCast(json_value.integer)),
+            i16 => @as(T, @intCast(json_value.integer)),
+            i32 => @as(T, @intCast(json_value.integer)),
+            i64 => @as(T, @intCast(json_value.integer)),
+            u16 => @as(T, @bitCast(json_value.integer)),
+            u32 => @as(T, @bitCast(json_value.integer)),
+            u64 => @as(T, @bitCast(json_value.integer)),
+            f32 => @as(T, @floatCast(json_value.float)),
+            f64 => @as(T, json_value.float),
+            []u8 => @as(T, @constCast(json_value.string)),
+            []const u8 => json_value.string,
+            bool => @as(T, json_value.boolean),
+            else => null,
         };
     }
 };
@@ -83,15 +74,14 @@ pub const ChQueryResult = struct {
     res: [*c]chdb.local_result_v2,
     alloc: std.mem.Allocator,
     iter: JsonLineIterator,
-    fn new(r: [*c]chdb.local_result_v2, alloc: std.mem.Allocator) !*ChQueryResult {
+    fn init(r: [*c]chdb.local_result_v2, alloc: std.mem.Allocator) !*ChQueryResult {
         var instance = try alloc.create(ChQueryResult);
         instance.res = r;
         instance.alloc = alloc;
         instance.iter = JsonLineIterator.init(std.mem.span(instance.res.*.buf), instance.alloc);
-        // instance.iter = JsonLineIterator.init(, allocator: std.mem.Allocator)
         return instance;
     }
-    pub fn next(self: *ChQueryResult) !*Row {
+    pub fn next(self: *ChQueryResult) ?*Row {
         return self.iter.next();
     }
     pub fn free(self: *ChQueryResult) void {
@@ -106,7 +96,7 @@ pub const ChConn = struct {
     conn: [*c][*c]chdb.chdb_conn,
     alloc: std.mem.Allocator,
 
-    pub fn new(alloc: std.mem.Allocator, connStr: []const u8) !*ChConn {
+    pub fn init(alloc: std.mem.Allocator, connStr: []const u8) !*ChConn {
         var instance = try alloc.create(ChConn);
         instance.alloc = alloc;
         var tokenizer = std.mem.tokenizeAny(u8, connStr, "&");
@@ -152,7 +142,7 @@ pub const ChConn = struct {
             const result_struct = res.*; // Unwrap the optional pointer
 
             if (result_struct.error_message == null) {
-                return try ChQueryResult.new(res, self.alloc);
+                return try ChQueryResult.init(res, self.alloc);
             } else {
                 chdb.free_result_v2(res);
                 return error.NotValid;

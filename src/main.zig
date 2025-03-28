@@ -11,21 +11,29 @@ pub fn main() !void {
     // stdout, not any debugging messages.
 
     const alloc = std.heap.smp_allocator;
-    const conn = c.ChConn.new(alloc, "--path=/tmp/chdb&readonly=1") catch |err| {
+    const conn = c.ChConn.init(alloc, "--path=/tmp/chdb&readonly=1") catch |err| {
         std.debug.print("Error: {}\n", .{err});
         return err;
     };
 
     defer conn.deinit();
-    std.debug.print("{*}\n", .{conn});
+    std.debug.print("{}\n", .{conn});
     var buffer: [100:0]u8 = undefined; // Sentinel 0 ensures null termination
-    const slice = try std.fmt.bufPrint(&buffer, "select 1 as a,2 as b", .{});
+    const slice = try std.fmt.bufPrint(&buffer, "select 'test' as a,1 as b, 3.5 as c from system.numbers limit 10;", .{});
     const res = try conn.query(slice, @constCast("JSONEachRow"));
-    const row = try res.next();
-
-    const val = row.get(i64, "a");
-
-    std.debug.print("{*}", .{val});
+    while (res.next()) |row| {
+        defer row.deinit();
+        const columns = row.columns();
+        for (columns) |column| {
+            std.debug.print("{s}\n", .{column});
+        }
+        const val: ?[]const u8 = row.get([]const u8, "a");
+        std.debug.print("{s}\n", .{val.?});
+        const val2: ?i64 = row.get(i64, "b");
+        std.debug.print("{d}\n", .{val2.?});
+        const val3: ?f32 = row.get(f32, "c");
+        std.debug.print("{d}\n", .{val3.?});
+    }
 }
 
 test "simple test" {
