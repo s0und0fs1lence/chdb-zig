@@ -4,6 +4,7 @@ const chdb = @cImport({
 });
 
 pub const ChError = error{
+    ConnectionFailed,
     NotValid,
     NotFound,
     TypeMismatch,
@@ -104,6 +105,12 @@ pub const ChConn = struct {
     conn: [*c][*c]chdb.chdb_conn,
     alloc: std.mem.Allocator,
 
+    /// This function is used to initialize a connection to the ClickHouse database.
+    /// It takes an allocator and a connection string as input.
+    /// The connection string should be in the format of "key=value&key2=value2".
+    /// The function returns a pointer to a ChConn object or an error if the connection fails.
+    /// The function uses the allocator to allocate memory for the connection string and
+    /// the connection object. Also, it pass this allocator to all the query results retrieved by this connection.
     pub fn init(alloc: std.mem.Allocator, connStr: []const u8) !*ChConn {
         var instance = try alloc.create(ChConn);
         instance.alloc = alloc;
@@ -133,13 +140,22 @@ pub const ChConn = struct {
 
         if (conn == null) {
             std.debug.print("Connection failed\n", .{});
-            return error.NotValid;
+            return ChError.ConnectionFailed;
         }
         instance.conn = conn;
 
         return instance;
     }
 
+    /// This function is used to execute a query on the ClickHouse database
+    /// and return the result as a ChQueryResult object.
+    ///
+    /// It takes a query string and a format string as input.
+    /// The format string specifies the output format of the query result.
+    ///
+    /// The function returns a ChQueryResult object or an error if the query fails.
+    /// The function allocate memory for the query string and format string using the allocator
+    /// provided in the ChConn object.
     pub fn query(self: *ChConn, q: []u8, format: []u8) !*ChQueryResult {
         const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{q});
         defer self.alloc.free(q_ptr);

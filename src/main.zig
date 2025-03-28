@@ -22,6 +22,7 @@ pub fn main() !void {
     const slice = try std.fmt.bufPrint(&buffer, "select 'test' as a,1 as b, 3.5 as c from system.numbers limit 10;", .{});
     const res = try conn.query(slice, @constCast("JSONEachRow"));
     while (res.next()) |row| {
+        std.debug.print("{}\n", .{row.value});
         const columns = row.columns();
         for (columns) |column| {
             std.debug.print("{s}\n", .{column});
