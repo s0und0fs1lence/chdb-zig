@@ -40,7 +40,7 @@ pub const JsonLineIterator = struct {
 pub const Row = struct {
     value: std.json.Parsed(std.json.Value), // Holds the parsed JSON value for the current line
 
-    pub fn deinit(self: *Row) void {
+    fn deinit(self: *Row) void {
         self.value.deinit();
     }
     pub fn columns(self: *Row) [][]const u8 {
@@ -74,15 +74,21 @@ pub const ChQueryResult = struct {
     res: [*c]chdb.local_result_v2,
     alloc: std.mem.Allocator,
     iter: JsonLineIterator,
+    curRow: ?*Row,
     fn init(r: [*c]chdb.local_result_v2, alloc: std.mem.Allocator) !*ChQueryResult {
         var instance = try alloc.create(ChQueryResult);
         instance.res = r;
         instance.alloc = alloc;
         instance.iter = JsonLineIterator.init(std.mem.span(instance.res.*.buf), instance.alloc);
+        instance.curRow = null;
         return instance;
     }
     pub fn next(self: *ChQueryResult) ?*Row {
-        return self.iter.next();
+        if (self.curRow) |current| {
+            current.deinit();
+        }
+        self.curRow = self.iter.next();
+        return self.curRow;
     }
     pub fn free(self: *ChQueryResult) void {
         if (self.res != null) {
