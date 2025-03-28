@@ -86,6 +86,8 @@ pub const ChQueryResult = struct {
     pub fn next(self: *ChQueryResult) ?*Row {
         if (self.curRow) |current| {
             current.deinit();
+            self.alloc.destroy(current);
+            self.curRow = null;
         }
         self.curRow = self.iter.next();
         return self.curRow;
