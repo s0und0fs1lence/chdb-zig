@@ -104,7 +104,7 @@ pub const ChQueryResult = struct {
 pub const ChConn = struct {
     conn: [*c][*c]chdb.chdb_conn,
     alloc: std.mem.Allocator,
-
+    format: [:0]u8,
     /// This function is used to initialize a connection to the ClickHouse database.
     /// It takes an allocator and a connection string as input.
     /// The connection string should be in the format of "key=value&key2=value2".
@@ -114,6 +114,7 @@ pub const ChConn = struct {
     pub fn init(alloc: std.mem.Allocator, connStr: []const u8) !*ChConn {
         var instance = try alloc.create(ChConn);
         instance.alloc = alloc;
+        instance.format = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"JSONEachRow"});
         var tokenizer = std.mem.tokenizeAny(u8, connStr, "&");
         var arr = std.ArrayList([*c]u8).init(alloc);
         const clickhouseStr = try std.fmt.allocPrintZ(instance.alloc, comptime "{s}", .{"clickhouse"});
@@ -156,12 +157,12 @@ pub const ChConn = struct {
     /// The function returns a ChQueryResult object or an error if the query fails.
     /// The function allocate memory for the query string and format string using the allocator
     /// provided in the ChConn object.
-    pub fn query(self: *ChConn, q: []u8, format: []u8) !*ChQueryResult {
+    pub fn query(self: *ChConn, q: []u8, values: anytype) !*ChQueryResult {
+        std.debug.print("{}\n", .{values.len});
         const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{q});
         defer self.alloc.free(q_ptr);
-        const f_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{format});
-        defer self.alloc.free(f_ptr);
-        const res = chdb.query_conn(self.conn.*, q_ptr, f_ptr);
+
+        const res = chdb.query_conn(self.conn.*, q_ptr, self.format);
         if (res != null) {
             const result_struct = res.*; // Unwrap the optional pointer
 
@@ -181,6 +182,7 @@ pub const ChConn = struct {
         if (self.conn != null) {
             chdb.close_conn(self.conn);
         }
+        self.alloc.free(self.format);
 
         self.alloc.destroy(self);
     }
