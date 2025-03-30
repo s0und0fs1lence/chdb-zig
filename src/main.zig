@@ -17,9 +17,18 @@ pub fn main() !void {
     };
 
     defer conn.deinit();
+
+    var result = try conn.exec(@constCast("CREATE TABLE test (id Int32) engine=MergeTree() order by id;"), .{}); // This should fail
+
+    std.debug.print("{d}\n", .{result.affectedRows()});
+
+    result = try conn.exec(@constCast("INSERT INTO test values (1),(2),(3)"), .{}); // This should fail
+
+    std.debug.print("{d}\n", .{result.affectedRows()});
+
     std.debug.print("{}\n", .{conn});
     var buffer: [100:0]u8 = undefined; // Sentinel 0 ensures null termination
-    const slice = try std.fmt.bufPrint(&buffer, "select 'test' as a,1 as b, 3.5 as c from system.numbers limit 10;", .{});
+    const slice = try std.fmt.bufPrint(&buffer, "select * from test", .{});
     const res = try conn.query(slice, .{9000});
     while (res.next()) |row| {
         std.debug.print("{}\n", .{row.value});
@@ -27,12 +36,9 @@ pub fn main() !void {
         for (columns) |column| {
             std.debug.print("{s}\n", .{column});
         }
-        const val: ?[]const u8 = row.get([]const u8, "a");
-        std.debug.print("{s}\n", .{val.?});
-        const val2: ?i64 = row.get(i64, "b");
+
+        const val2: ?i64 = row.get(i64, "id");
         std.debug.print("{d}\n", .{val2.?});
-        const val3: ?f32 = row.get(f32, "c");
-        std.debug.print("{d}\n", .{val3.?});
     }
 }
 

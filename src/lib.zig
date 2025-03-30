@@ -48,7 +48,7 @@ pub const Row = struct {
         // TODO: clone the keys
         return self.value.value.object.keys();
     }
-    pub fn get(self: *Row, comptime T: type, name: []const u8) ?T {
+    pub fn get(self: *Row, T: type, name: []const u8) ?T {
         const json_value = self.value.value.object.get(name) orelse {
             return null;
         };
@@ -68,6 +68,32 @@ pub const Row = struct {
             bool => @as(T, json_value.boolean),
             else => null,
         };
+    }
+};
+
+pub const ChSingleRow = struct {
+    elapsed: f64,
+    rows_read: u64,
+    error_message: [*c]u8,
+    fn init(res: [*c]chdb.local_result_v2) !ChSingleRow {
+        return ChSingleRow{
+            .elapsed = res.*.elapsed,
+            .rows_read = res.*.rows_read,
+            .error_message = res.*.error_message,
+        };
+    }
+
+    pub fn elapsedSec(self: *ChSingleRow) f64 {
+        return self.elapsed;
+    }
+    pub fn affectedRows(self: *ChSingleRow) u64 {
+        return self.rows_read;
+    }
+    pub fn isError(self: *ChSingleRow) bool {
+        return self.error_message != null;
+    }
+    pub fn errorMessage(self: *ChSingleRow) [*c]u8 {
+        return self.error_message;
     }
 };
 
@@ -112,13 +138,24 @@ pub const ChConn = struct {
     /// The function uses the allocator to allocate memory for the connection string and
     /// the connection object. Also, it pass this allocator to all the query results retrieved by this connection.
     pub fn init(alloc: std.mem.Allocator, connStr: []const u8) !*ChConn {
+
+        // create a new instance of ChConn
+        // and allocate memory for the connection string
+        // and the connection object
         var instance = try alloc.create(ChConn);
         instance.alloc = alloc;
+        // cast the format to a C-compatible string
+        // and allocate memory for it
         instance.format = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"JSONEachRow"});
+
+        // tokenize the connection string
+        // and create an array of C-compatible strings
+        // using the allocator
         var tokenizer = std.mem.tokenizeAny(u8, connStr, "&");
         var arr = std.ArrayList([*c]u8).init(alloc);
-        const clickhouseStr = try std.fmt.allocPrintZ(instance.alloc, comptime "{s}", .{"clickhouse"});
-        defer instance.alloc.free(clickhouseStr);
+
+        const clickhouseStr = "clickhouse\x00";
+
         try arr.append(clickhouseStr);
         while (tokenizer.next()) |tok| {
             if (tok.len == 0) {
@@ -172,6 +209,20 @@ pub const ChConn = struct {
                 chdb.free_result_v2(res);
                 return error.NotValid;
             }
+        }
+        return ChError.NotValid;
+    }
+
+    pub fn exec(self: *ChConn, q: []u8, values: anytype) !ChSingleRow {
+        // discard for the moment;
+        _ = values;
+
+        const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{q});
+        defer self.alloc.free(q_ptr);
+
+        const res = chdb.query_conn(self.conn.*, q_ptr, self.format);
+        if (res != null) {
+            return ChSingleRow.init(res);
         }
         return ChError.NotValid;
     }
