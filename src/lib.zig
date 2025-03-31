@@ -8,22 +8,26 @@ pub const ChError = error{
     NotValid,
     NotFound,
     TypeMismatch,
+    IndexOutOfBounds,
 };
 
 pub const JsonLineIterator = struct {
     buffer: []const u8, // The entire JSON buffer to be processed
     lines: std.mem.SplitIterator(u8, std.mem.DelimiterType.scalar), // An iterator that yields each line from the buffer
     allocator: std.mem.Allocator, // An allocator to be used for parsing JSON within each line
+    curLine: usize,
     pub fn init(buffer: []const u8, allocator: std.mem.Allocator) JsonLineIterator {
         return .{
             .buffer = buffer,
             .lines = std.mem.splitScalar(u8, buffer, '\n'),
             .allocator = allocator,
+            .curLine = 0,
         };
     }
 
     pub fn next(self: *JsonLineIterator) ?*Row {
         if (self.lines.next()) |line| {
+            self.curLine += 1;
             const parsed_value = std.json.parseFromSlice(std.json.Value, self.allocator, line, .{}) catch {
                 return null;
             };
@@ -31,25 +35,73 @@ pub const JsonLineIterator = struct {
             const r = self.allocator.create(Row) catch {
                 return null;
             };
-            r.value = parsed_value;
+            r._row = parsed_value;
             return r;
         }
         return null; // Signal the end of the buffer
     }
+
+    pub fn setIndex(self: *JsonLineIterator, index: usize) !void {
+        // reset the iterator to count the lines
+
+        if (index <= self.curLine) {
+            // if the index is less than the current line, reset the iterator
+            // otherwise, just continue from the current position
+            self.lines.reset();
+        }
+
+        // count the lines
+        var cnt: usize = 0;
+        var prevIndex = self.lines.index;
+        var isValid = false;
+        while (self.lines.next()) |_| {
+            if (cnt == index) {
+                self.lines.index = prevIndex;
+
+                isValid = true;
+                break;
+            }
+            cnt += 1;
+            prevIndex = self.lines.index;
+        }
+        if (!isValid) {
+            return error.IndexOutOfBounds;
+        }
+        self.curLine = index;
+    }
+
+    pub fn getIndex(self: *JsonLineIterator) usize {
+        return self.curLine;
+    }
+    pub fn count(self: *JsonLineIterator) usize {
+        //save the current buffer
+
+        const curIndex = self.lines.index;
+        // reset the iterator to count the lines
+        self.lines.reset();
+        // count the lines
+        var cnt: usize = 0;
+        while (self.lines.next()) |_| {
+            cnt += 1;
+        }
+        // reset the iterator to the original position
+        self.lines.index = curIndex;
+        return cnt;
+    }
 };
 
 pub const Row = struct {
-    value: std.json.Parsed(std.json.Value), // Holds the parsed JSON value for the current line
+    _row: std.json.Parsed(std.json.Value), // Holds the parsed JSON value for the current line
 
     fn deinit(self: *Row) void {
-        self.value.deinit();
+        self._row.deinit();
     }
     pub fn columns(self: *Row) [][]const u8 {
         // TODO: clone the keys
-        return self.value.value.object.keys();
+        return self._row.value.object.keys();
     }
     pub fn get(self: *Row, T: type, name: []const u8) ?T {
-        const json_value = self.value.value.object.get(name) orelse {
+        const json_value = self._row.value.object.get(name) orelse {
             return null;
         };
         return switch (T) {
@@ -119,6 +171,45 @@ pub const ChQueryResult = struct {
         self.curRow = self.iter.next();
         return self.curRow;
     }
+
+    pub fn count(self: *ChQueryResult) u64 {
+        return self.res.*.rows_read;
+    }
+
+    pub fn getIndex(self: *ChQueryResult) usize {
+        return self.iter.getIndex();
+    }
+    pub fn setIndex(self: *ChQueryResult, index: usize) !void {
+        return self.iter.setIndex(index);
+    }
+
+    pub fn rowAt(self: *ChQueryResult, index: usize) ?*Row {
+        // set the position of the iterator to the specified index
+        // and return the row at that position
+        const curIndex = self.iter.lines.index;
+        defer self.iter.lines.index = curIndex;
+        self.iter.setIndex(index) catch {
+            return null;
+        };
+        // get the row at the current position
+        const row = self.iter.next();
+        if (row) |r| {
+            // set the iterator back to the original position
+
+            return r;
+        }
+
+        return null;
+    }
+
+    pub fn freeCurrentRow(self: *ChQueryResult) void {
+        if (self.curRow) |current| {
+            current.deinit();
+            self.alloc.destroy(current);
+            self.curRow = null;
+        }
+    }
+
     pub fn free(self: *ChQueryResult) void {
         if (self.res != null) {
             chdb.free_result_v2(self.res);
@@ -154,8 +245,8 @@ pub const ChConn = struct {
         var tokenizer = std.mem.tokenizeAny(u8, connStr, "&");
         var arr = std.ArrayList([*c]u8).init(alloc);
 
-        const clickhouseStr = "clickhouse\x00";
-
+        const clickhouseStr = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"clickhouse"});
+        defer alloc.free(clickhouseStr);
         try arr.append(clickhouseStr);
         while (tokenizer.next()) |tok| {
             if (tok.len == 0) {

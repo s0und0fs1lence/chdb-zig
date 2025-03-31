@@ -1,7 +1,7 @@
 //! By convention, main.zig is where your main function lives in the case that
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
-const c = @import("lib.zig");
+const libChdb = @import("lib.zig");
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -11,7 +11,7 @@ pub fn main() !void {
     // stdout, not any debugging messages.
 
     const alloc = std.heap.smp_allocator;
-    const conn = c.ChConn.init(alloc, "--path=/tmp/chdb&readonly=1") catch |err| {
+    const conn = libChdb.ChConn.init(alloc, "--path=/tmp/chdb&readonly=1") catch |err| {
         std.debug.print("Error: {}\n", .{err});
         return err;
     };
@@ -30,13 +30,16 @@ pub fn main() !void {
     var buffer: [100:0]u8 = undefined; // Sentinel 0 ensures null termination
     const slice = try std.fmt.bufPrint(&buffer, "select * from test", .{});
     const res = try conn.query(slice, .{9000});
+
     while (res.next()) |row| {
-        std.debug.print("{}\n", .{row.value});
+        std.debug.print("{}\n", .{row._row});
         const columns = row.columns();
         for (columns) |column| {
             std.debug.print("{s}\n", .{column});
         }
-
+        const row1 = res.rowAt(1);
+        const val3: ?i64 = row1.?.get(i64, "id");
+        std.debug.print("row at position 1: {d}\n", .{val3.?});
         const val2: ?i64 = row.get(i64, "id");
         std.debug.print("{d}\n", .{val2.?});
     }
@@ -50,7 +53,7 @@ test "simple test" {
 }
 
 test "use other module" {
-    try std.testing.expectEqual(@as(i32, 150), lib.add(100, 50));
+    try std.testing.expectEqual(@as(i32, 150), libChdb.add(100, 50));
 }
 
 test "fuzz example" {
