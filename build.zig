@@ -43,7 +43,7 @@ pub fn build(b: *std.Build) void {
     // This is what allows Zig source code to use `@import("foo")` where 'foo' is not a
     // file path. In this case, we set up `exe_mod` to import `lib_mod`.
     exe_mod.addImport("chdb_zig_lib", lib_mod);
-
+    exe_mod.addIncludePath(b.path("src/header"));
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) void {
     // 2. Link against the library (without "lib" prefix and extension)
     exe.linkSystemLibrary("chdb");
     // 3. Add include path for headers (if needed)
-    exe.addIncludePath(.{ .cwd_relative = "./chdb.h" });
+    exe.addIncludePath(b.path("src/header"));
     // 4. Link C standard library (if required)
     exe.linkLibC();
     // This declares intent for the executable to be installed into the

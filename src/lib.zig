@@ -1,153 +1,11 @@
 const std = @import("std");
-const chdb = @cImport({
-    @cInclude("/workspaces/chdb-zig/header/chdb.h");
-});
+const types = @import("types.zig"); // Import the Row struct from types.zig
+const Row = types.Row; // Import the Row struct from types.zig
+const ChSingleRow = types.ChSingleRow; // Import the Row struct from types.zig
+const JsonLineIterator = @import("json_iterator.zig").JsonLineIterator;
+const ChError = types.ChError;
 
-pub const ChError = error{
-    ConnectionFailed,
-    NotValid,
-    NotFound,
-    TypeMismatch,
-    IndexOutOfBounds,
-};
-
-pub const JsonLineIterator = struct {
-    buffer: []const u8, // The entire JSON buffer to be processed
-    lines: std.mem.SplitIterator(u8, std.mem.DelimiterType.scalar), // An iterator that yields each line from the buffer
-    allocator: std.mem.Allocator, // An allocator to be used for parsing JSON within each line
-    curLine: usize,
-    pub fn init(buffer: []const u8, allocator: std.mem.Allocator) JsonLineIterator {
-        return .{
-            .buffer = buffer,
-            .lines = std.mem.splitScalar(u8, buffer, '\n'),
-            .allocator = allocator,
-            .curLine = 0,
-        };
-    }
-
-    pub fn next(self: *JsonLineIterator) ?*Row {
-        if (self.lines.next()) |line| {
-            self.curLine += 1;
-            const parsed_value = std.json.parseFromSlice(std.json.Value, self.allocator, line, .{}) catch {
-                return null;
-            };
-            // Attempt to parse the current line as a JSON object using std.json.parseFromSlice
-            const r = self.allocator.create(Row) catch {
-                return null;
-            };
-            r._row = parsed_value;
-            return r;
-        }
-        return null; // Signal the end of the buffer
-    }
-
-    pub fn setIndex(self: *JsonLineIterator, index: usize) !void {
-        // reset the iterator to count the lines
-
-        if (index <= self.curLine) {
-            // if the index is less than the current line, reset the iterator
-            // otherwise, just continue from the current position
-            self.lines.reset();
-        }
-
-        // count the lines
-        var cnt: usize = 0;
-        var prevIndex = self.lines.index;
-        var isValid = false;
-        while (self.lines.next()) |_| {
-            if (cnt == index) {
-                self.lines.index = prevIndex;
-
-                isValid = true;
-                break;
-            }
-            cnt += 1;
-            prevIndex = self.lines.index;
-        }
-        if (!isValid) {
-            return error.IndexOutOfBounds;
-        }
-        self.curLine = index;
-    }
-
-    pub fn getIndex(self: *JsonLineIterator) usize {
-        return self.curLine;
-    }
-    pub fn count(self: *JsonLineIterator) usize {
-        //save the current buffer
-
-        const curIndex = self.lines.index;
-        // reset the iterator to count the lines
-        self.lines.reset();
-        // count the lines
-        var cnt: usize = 0;
-        while (self.lines.next()) |_| {
-            cnt += 1;
-        }
-        // reset the iterator to the original position
-        self.lines.index = curIndex;
-        return cnt;
-    }
-};
-
-pub const Row = struct {
-    _row: std.json.Parsed(std.json.Value), // Holds the parsed JSON value for the current line
-
-    fn deinit(self: *Row) void {
-        self._row.deinit();
-    }
-    pub fn columns(self: *Row) [][]const u8 {
-        // TODO: clone the keys
-        return self._row.value.object.keys();
-    }
-    pub fn get(self: *Row, T: type, name: []const u8) ?T {
-        const json_value = self._row.value.object.get(name) orelse {
-            return null;
-        };
-        return switch (T) {
-            u8 => @as(T, json_value.string),
-            i8 => @as(T, @intCast(json_value.integer)),
-            i16 => @as(T, @intCast(json_value.integer)),
-            i32 => @as(T, @intCast(json_value.integer)),
-            i64 => @as(T, @intCast(json_value.integer)),
-            u16 => @as(T, @bitCast(json_value.integer)),
-            u32 => @as(T, @bitCast(json_value.integer)),
-            u64 => @as(T, @bitCast(json_value.integer)),
-            f32 => @as(T, @floatCast(json_value.float)),
-            f64 => @as(T, json_value.float),
-            []u8 => @as(T, @constCast(json_value.string)),
-            []const u8 => json_value.string,
-            bool => @as(T, json_value.boolean),
-            else => null,
-        };
-    }
-};
-
-pub const ChSingleRow = struct {
-    elapsed: f64,
-    rows_read: u64,
-    error_message: [*c]u8,
-    fn init(res: [*c]chdb.local_result_v2) !ChSingleRow {
-        return ChSingleRow{
-            .elapsed = res.*.elapsed,
-            .rows_read = res.*.rows_read,
-            .error_message = res.*.error_message,
-        };
-    }
-
-    pub fn elapsedSec(self: *ChSingleRow) f64 {
-        return self.elapsed;
-    }
-    pub fn affectedRows(self: *ChSingleRow) u64 {
-        return self.rows_read;
-    }
-    pub fn isError(self: *ChSingleRow) bool {
-        return self.error_message != null;
-    }
-    pub fn errorMessage(self: *ChSingleRow) [*c]u8 {
-        return self.error_message;
-    }
-};
+const chdb = types.chdb;
 
 pub const ChQueryResult = struct {
     res: [*c]chdb.local_result_v2,
@@ -158,11 +16,15 @@ pub const ChQueryResult = struct {
         var instance = try alloc.create(ChQueryResult);
         instance.res = r;
         instance.alloc = alloc;
-        instance.iter = JsonLineIterator.init(std.mem.span(instance.res.*.buf), instance.alloc);
+        instance.iter = JsonLineIterator.init(std.mem.span(instance.res.*.buf), instance.res.*.rows_read, instance.alloc);
         instance.curRow = null;
         return instance;
     }
     pub fn next(self: *ChQueryResult) ?*Row {
+        // the next function is used to get the next row from the iterator
+        // and return it as a Row object
+        // if the iterator is at the end, return null
+        // if we hold a current row, free it
         if (self.curRow) |current| {
             current.deinit();
             self.alloc.destroy(current);
@@ -195,7 +57,7 @@ pub const ChQueryResult = struct {
         const row = self.iter.next();
         if (row) |r| {
             // set the iterator back to the original position
-
+            self.iter.lines.index = curIndex;
             return r;
         }
 
@@ -286,7 +148,8 @@ pub const ChConn = struct {
     /// The function allocate memory for the query string and format string using the allocator
     /// provided in the ChConn object.
     pub fn query(self: *ChConn, q: []u8, values: anytype) !*ChQueryResult {
-        std.debug.print("{}\n", .{values.len});
+        // discard for the moment;
+        _ = values;
         const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{q});
         defer self.alloc.free(q_ptr);
 
