@@ -43,31 +43,30 @@ pub const JsonLineIterator = struct {
         if (index < 0) {
             return error.IndexOutOfBounds;
         }
-
+        var prevLine = self.curLine;
+        var prevIndex = self.lines.index;
         if (index <= self.curLine) {
             // if the index is less than the current line, reset the iterator
             // otherwise, just continue from the current position
+            prevLine = 0;
             self.lines.reset();
         }
 
-        // count the lines
-        var cnt: usize = 0;
-        var prevIndex = self.lines.index;
         var isValid = false;
         while (self.lines.next()) |_| {
-            if (cnt == index) {
+            if (prevLine == index) {
                 self.lines.index = prevIndex;
 
                 isValid = true;
                 break;
             }
-            cnt += 1;
+            prevLine += 1;
             prevIndex = self.lines.index;
         }
+        self.lines.index = prevIndex;
         if (!isValid) {
             return error.IndexOutOfBounds;
         }
-        self.curLine = index;
     }
 
     pub fn getIndex(self: *JsonLineIterator) usize {
