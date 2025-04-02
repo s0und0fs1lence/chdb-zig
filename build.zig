@@ -23,11 +23,12 @@ pub fn build(b: *std.Build) void {
         // only contains e.g. external object files, you can make this `null`.
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    lib_mod.addIncludePath(b.path("lib/"));
     // We will also create a module for our other entry point, 'main.zig'.
     const exe_mod = b.createModule(.{
         // `root_source_file` is the Zig "entry point" of the module. If a module
@@ -43,7 +44,7 @@ pub fn build(b: *std.Build) void {
     // This is what allows Zig source code to use `@import("foo")` where 'foo' is not a
     // file path. In this case, we set up `exe_mod` to import `lib_mod`.
     exe_mod.addImport("chdb_zig_lib", lib_mod);
-    exe_mod.addIncludePath(b.path("src/header"));
+    exe_mod.addIncludePath(b.path("lib/"));
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
@@ -65,7 +66,7 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
     // ✅ Add library search path (directory, not file)
-    exe.addLibraryPath(.{ .cwd_relative = "./" });
+    exe.addLibraryPath(.{ .cwd_relative = "./lib/" });
     // 2. Link against the library (without "lib" prefix and extension)
     exe.linkSystemLibrary("chdb");
     // 3. Add include path for headers (if needed)

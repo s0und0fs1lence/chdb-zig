@@ -1,4 +1,4 @@
 /.vscode
 /.zig-cache
-/libchdb.so
+/lib/libchdb.so
 zig-out/

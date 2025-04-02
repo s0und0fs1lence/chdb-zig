@@ -192,3 +192,10 @@ pub const ChConn = struct {
         self.alloc.destroy(self);
     }
 };
+
+test "connection test" {
+    const alloc = std.heap.smp_allocator;
+    const conn = try ChConn.init(alloc, "--path=/tmp/chdb");
+
+    defer conn.deinit();
+}
