@@ -1,8 +1,9 @@
 //! By convention, main.zig is where your main function lives in the case that
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
-const libChdb = @import("chdb_zig_lib");
+const libChdb = @import("lib.zig");
 const std = @import("std");
+const sql_interpolator = @import("sql_interpolator.zig");
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -10,8 +11,22 @@ pub fn main() !void {
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
+    const allocator = std.heap.page_allocator; // Or another allocator
+    // const numbers = [_]i32{ 1, 2, 3 };
+    const date = "2025-04-07";
+    // const userId: u32 = 123;
+    // const userName = "O'Malley";
+    // const threshold = 99.5;
+    const sql_fmt = "SELECT * FROM table WHERE d = {d}";
 
+    // const sql_template = "SELECT event_id FROM events WHERE user_id = {u} AND user_name = {s} AND probability > {f} LIMIT 10";
+
+    const final_sql = try sql_interpolator.interpolate(allocator, sql_fmt, .{date});
+    defer allocator.free(final_sql);
+
+    std.debug.print("Generated SQL:\n{s}\n", .{final_sql});
     const alloc = std.heap.smp_allocator;
+
     const conn = libChdb.ChConn.init(alloc, "--path=/tmp/chdb&readonly=1") catch |err| {
         std.debug.print("Error: {}\n", .{err});
         return err;
