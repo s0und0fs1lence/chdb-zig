@@ -363,6 +363,66 @@ test "advanced sql injection prevention" {
     try testing.expectEqualStrings(expected, result);
 }
 
+test "advanced sql injection: union select" {
+    const allocator = testing.allocator;
+    const evil_input = "x' UNION SELECT password FROM users; --";
+
+    const sql_fmt = "SELECT * FROM products WHERE category = {s}";
+    const expected = "SELECT * FROM products WHERE category = 'x\\' UNION SELECT password FROM users; --'";
+
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{evil_input});
+    defer allocator.free(result);
+    try testing.expectEqualStrings(expected, result);
+}
+
+test "advanced sql injection: boolean based" {
+    const allocator = testing.allocator;
+    const evil_input = "x' AND 1=1 UNION ALL SELECT NULL,table_name,NULL FROM information_schema.tables; --";
+
+    const sql_fmt = "SELECT * FROM users WHERE name = {s}";
+    const expected = "SELECT * FROM users WHERE name = 'x\\' AND 1=1 UNION ALL SELECT NULL,table_name,NULL FROM information_schema.tables; --'";
+
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{evil_input});
+    defer allocator.free(result);
+    try testing.expectEqualStrings(expected, result);
+}
+
+test "advanced sql injection: stacked queries" {
+    const allocator = testing.allocator;
+    const evil_input = "x'; INSERT INTO users (username,password) VALUES ('attacker','pwned'); --";
+
+    const sql_fmt = "SELECT * FROM products WHERE name = {s}";
+    const expected = "SELECT * FROM products WHERE name = 'x\\'; INSERT INTO users (username,password) VALUES (\\'attacker\\',\\'pwned\\'); --'";
+
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{evil_input});
+    defer allocator.free(result);
+    try testing.expectEqualStrings(expected, result);
+}
+
+test "advanced sql injection: time based" {
+    const allocator = testing.allocator;
+    const evil_input = "x' AND (SELECT CASE WHEN (username='admin') THEN pg_sleep(10) ELSE pg_sleep(0) END FROM users)--";
+
+    const sql_fmt = "SELECT * FROM products WHERE name = {s}";
+    const expected = "SELECT * FROM products WHERE name = 'x\\' AND (SELECT CASE WHEN (username=\\'admin\\') THEN pg_sleep(10) ELSE pg_sleep(0) END FROM users)--'";
+
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{evil_input});
+    defer allocator.free(result);
+    try testing.expectEqualStrings(expected, result);
+}
+
+test "advanced sql injection: unicode escape" {
+    const allocator = testing.allocator;
+    const evil_input = "x\\u0027 UNION SELECT password FROM users--";
+
+    const sql_fmt = "SELECT * FROM products WHERE name = {s}";
+    const expected = "SELECT * FROM products WHERE name = 'x\\\\u0027 UNION SELECT password FROM users--'";
+
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{evil_input});
+    defer allocator.free(result);
+    try testing.expectEqualStrings(expected, result);
+}
+
 test "array formatting" {
     const allocator = testing.allocator;
     const numbers = [_]i32{ 1, 2, 3 };
