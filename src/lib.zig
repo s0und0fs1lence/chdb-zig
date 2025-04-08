@@ -4,8 +4,9 @@ const Row = types.Row; // Import the Row struct from types.zig
 const ChSingleRow = types.ChSingleRow; // Import the Row struct from types.zig
 const JsonLineIterator = @import("json_iterator.zig").JsonLineIterator;
 const ChError = types.ChError;
-
 const chdb = types.chdb;
+
+const sql_interpolator = @import("sql_interpolator.zig");
 
 pub const ChQueryResult = struct {
     res: [*c]chdb.local_result_v2,
@@ -149,8 +150,8 @@ pub const ChConn = struct {
     /// provided in the ChConn object.
     pub fn query(self: *ChConn, q: []u8, values: anytype) !*ChQueryResult {
         // discard for the moment;
-        _ = values;
-        const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{q});
+        const full_query = try sql_interpolator.interpolate(self.alloc, q, values);
+        const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{full_query});
         defer self.alloc.free(q_ptr);
 
         const res = chdb.query_conn(self.conn.*, q_ptr, self.format);
@@ -169,9 +170,9 @@ pub const ChConn = struct {
 
     pub fn exec(self: *ChConn, q: []u8, values: anytype) !ChSingleRow {
         // discard for the moment;
-        _ = values;
+        const full_query = try sql_interpolator.interpolate(self.alloc, q, values);
 
-        const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{q});
+        const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{full_query});
         defer self.alloc.free(q_ptr);
 
         const res = chdb.query_conn(self.conn.*, q_ptr, self.format);

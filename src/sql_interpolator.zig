@@ -33,7 +33,7 @@ pub const QueryBuilderError = error{
 /// Args should be a tuple, e.g., .{"hello'world", 123}
 pub fn interpolate(
     allocator: mem.Allocator,
-    query_fmt: []const u8,
+    query_fmt: []u8,
     args: anytype,
 ) QueryBuilderError![]u8 {
     var out_list = std.ArrayList(u8).init(allocator);
@@ -344,7 +344,7 @@ test "basic interpolation" {
     const sql_fmt = "SELECT * FROM table WHERE name = {s} AND id = {u} AND value > {f};";
     const expected = "SELECT * FROM table WHERE name = 'Arthur\\'s Seat' AND id = 42 AND value > 123.45;";
 
-    const result = try interpolate(allocator, sql_fmt, .{ name, id, value });
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{ name, id, value });
     defer allocator.free(result);
 
     try testing.expectEqualStrings(expected, result);
@@ -357,7 +357,7 @@ test "advanced sql injection prevention" {
     const sql_fmt = "SELECT * FROM users WHERE name = {s}";
     const expected = "SELECT * FROM users WHERE name = '\\'; DROP TABLE users; --'";
 
-    const result = try interpolate(allocator, sql_fmt, .{evil_input});
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{evil_input});
     defer allocator.free(result);
 
     try testing.expectEqualStrings(expected, result);
@@ -371,7 +371,7 @@ test "array formatting" {
     {
         const sql_fmt = "SELECT * FROM table WHERE ids IN {a}";
         const expected = "SELECT * FROM table WHERE ids IN [1, 2, 3]";
-        const result = try interpolate(allocator, sql_fmt, .{&numbers});
+        const result = try interpolate(allocator, @constCast(sql_fmt), .{&numbers});
         defer allocator.free(result);
         try testing.expectEqualStrings(expected, result);
     }
@@ -379,7 +379,7 @@ test "array formatting" {
     {
         const sql_fmt = "SELECT * FROM table WHERE names IN {a}";
         const expected = "SELECT * FROM table WHERE names IN ['hello', 'world']";
-        const result = try interpolate(allocator, sql_fmt, .{&strings});
+        const result = try interpolate(allocator, @constCast(sql_fmt), .{&strings});
         defer allocator.free(result);
         try testing.expectEqualStrings(expected, result);
     }
@@ -393,7 +393,7 @@ test "date and datetime" {
     {
         const sql_fmt = "SELECT * FROM table WHERE date = {d}";
         const expected = "SELECT * FROM table WHERE date = '2025-04-07'";
-        const result = try interpolate(allocator, sql_fmt, .{date});
+        const result = try interpolate(allocator, @constCast(sql_fmt), .{date});
         defer allocator.free(result);
         try testing.expectEqualStrings(expected, result);
     }
@@ -401,7 +401,7 @@ test "date and datetime" {
     {
         const sql_fmt = "SELECT * FROM table WHERE timestamp = {t}";
         const expected = "SELECT * FROM table WHERE timestamp = '2025-04-07 13:45:30'";
-        const result = try interpolate(allocator, sql_fmt, .{datetime});
+        const result = try interpolate(allocator, @constCast(sql_fmt), .{datetime});
         defer allocator.free(result);
         try testing.expectEqualStrings(expected, result);
     }
@@ -414,7 +414,7 @@ test "string escaping" {
     const sql_fmt = "INSERT INTO logs (message) VALUES ({s});";
     const expected_sql = "INSERT INTO logs (message) VALUES ('\\' OR 1=1; -- \\\\');";
 
-    const result = try interpolate(allocator, sql_fmt, .{dangerous_string});
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{dangerous_string});
     defer allocator.free(result);
 
     try testing.expectEqualStrings(expected_sql, result);
@@ -428,7 +428,7 @@ test "integer types" {
     const sql_fmt = "VALUES ({u}, {i})";
     const expected = "VALUES (9999999999999999999, -123)";
 
-    const result = try interpolate(allocator, sql_fmt, .{ uid, sid });
+    const result = try interpolate(allocator, @constCast(sql_fmt), .{ uid, sid });
     defer allocator.free(result);
 
     try testing.expectEqualStrings(expected, result);
@@ -437,31 +437,31 @@ test "integer types" {
 test "error: argument count mismatch (too few)" {
     const allocator = testing.allocator;
     const sql_fmt = "SELECT {s}, {i}";
-    try testing.expectError(QueryBuilderError.ArgumentCountMismatch, interpolate(allocator, sql_fmt, .{"one"}));
+    try testing.expectError(QueryBuilderError.ArgumentCountMismatch, interpolate(allocator, @constCast(sql_fmt), .{"one"}));
 }
 
 test "error: argument count mismatch (too many)" {
     const allocator = testing.allocator;
     const sql_fmt = "SELECT {s}";
-    try testing.expectError(QueryBuilderError.ArgumentCountMismatch, interpolate(allocator, sql_fmt, .{ "one", 2 }));
+    try testing.expectError(QueryBuilderError.ArgumentCountMismatch, interpolate(allocator, @constCast(sql_fmt), .{ "one", 2 }));
 }
 
 test "error: argument type mismatch" {
     const allocator = testing.allocator;
     const sql_fmt = "SELECT {s}"; // Expects string
-    try testing.expectError(QueryBuilderError.ArgumentTypeMismatch, interpolate(allocator, sql_fmt, .{123})); // Provide int
+    try testing.expectError(QueryBuilderError.ArgumentTypeMismatch, interpolate(allocator, @constCast(sql_fmt), .{123})); // Provide int
 }
 
 test "error: unknown format specifier" {
     const allocator = testing.allocator;
     const sql_fmt = "SELECT {x}";
-    try testing.expectError(QueryBuilderError.UnknownFormatSpecifier, interpolate(allocator, sql_fmt, .{123}));
+    try testing.expectError(QueryBuilderError.UnknownFormatSpecifier, interpolate(allocator, @constCast(sql_fmt), .{123}));
 }
 
 test "error: invalid format string" {
     const allocator = testing.allocator;
-    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, "SELECT {s", .{"a"}));
-    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, "SELECT {", .{}));
-    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, "SELECT }", .{}));
-    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, "SELECT {s{}", .{ "a", "b" }));
+    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, @constCast("SELECT {s"), .{"a"}));
+    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, @constCast("SELECT {"), .{}));
+    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, @constCast("SELECT }"), .{}));
+    try testing.expectError(QueryBuilderError.InvalidFormatString, interpolate(allocator, @constCast("SELECT {s{}"), .{ "a", "b" }));
 }

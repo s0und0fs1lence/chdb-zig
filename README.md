@@ -31,7 +31,7 @@ pub fn main() !void {
 
     std.debug.print("{d}\n", .{result.affectedRows()});
 
-    result = try conn.exec(@constCast("INSERT INTO test values (1),(2),(3)"), .{});
+    result = try conn.exec(@constCast("INSERT INTO test values ({i}),({i}),({i})"), .{1,2,3});
 
     std.debug.print("{d}\n", .{result.affectedRows()});
 

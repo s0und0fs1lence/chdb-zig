@@ -6,25 +6,6 @@ const std = @import("std");
 const sql_interpolator = @import("sql_interpolator.zig");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const allocator = std.heap.page_allocator; // Or another allocator
-    // const numbers = [_]i32{ 1, 2, 3 };
-    const date = "2025-04-07";
-    // const userId: u32 = 123;
-    // const userName = "O'Malley";
-    // const threshold = 99.5;
-    const sql_fmt = "SELECT * FROM table WHERE d = {d}";
-
-    // const sql_template = "SELECT event_id FROM events WHERE user_id = {u} AND user_name = {s} AND probability > {f} LIMIT 10";
-
-    const final_sql = try sql_interpolator.interpolate(allocator, sql_fmt, .{date});
-    defer allocator.free(final_sql);
-
-    std.debug.print("Generated SQL:\n{s}\n", .{final_sql});
     const alloc = std.heap.smp_allocator;
 
     const conn = libChdb.ChConn.init(alloc, "--path=/tmp/chdb&readonly=1") catch |err| {
@@ -38,14 +19,14 @@ pub fn main() !void {
 
     std.debug.print("{d}\n", .{result.affectedRows()});
 
-    result = try conn.exec(@constCast("INSERT INTO test values (1),(2),(3)"), .{}); // This should fail
+    result = try conn.exec(@constCast("INSERT INTO test values ({i}),({i}),({i})"), .{ 1, 2, 3 }); // This should fail
 
     std.debug.print("{d}\n", .{result.affectedRows()});
 
     std.debug.print("{}\n", .{conn});
     var buffer: [100:0]u8 = undefined; // Sentinel 0 ensures null termination
     const slice = try std.fmt.bufPrint(&buffer, "select * from test", .{});
-    const res = try conn.query(slice, .{9000});
+    const res = try conn.query(slice, .{});
 
     while (res.next()) |row| {
         std.debug.print("{}\n", .{row._row});
