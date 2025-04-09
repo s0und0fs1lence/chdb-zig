@@ -1,5 +1,5 @@
 const std = @import("std");
-
+const JsonLineIterator = @import("json_iterator.zig").JsonLineIterator;
 pub const chdb = @cImport({
     @cInclude("chdb.h");
 });
@@ -10,6 +10,79 @@ pub const ChError = error{
     NotFound,
     TypeMismatch,
     IndexOutOfBounds,
+};
+
+pub const ChQueryResult = struct {
+    res: [*c]chdb.local_result_v2,
+    alloc: std.mem.Allocator,
+    iter: JsonLineIterator,
+    curRow: ?*Row,
+    pub fn init(r: [*c]chdb.local_result_v2, alloc: std.mem.Allocator) !*ChQueryResult {
+        var instance = try alloc.create(ChQueryResult);
+        instance.res = r;
+        instance.alloc = alloc;
+        instance.iter = JsonLineIterator.init(std.mem.span(instance.res.*.buf), instance.res.*.rows_read, instance.alloc);
+        instance.curRow = null;
+        return instance;
+    }
+    pub fn next(self: *ChQueryResult) ?*Row {
+        // the next function is used to get the next row from the iterator
+        // and return it as a Row object
+        // if the iterator is at the end, return null
+        // if we hold a current row, free it
+        if (self.curRow) |current| {
+            current.deinit();
+            self.alloc.destroy(current);
+            self.curRow = null;
+        }
+        self.curRow = self.iter.next();
+        return self.curRow;
+    }
+
+    pub fn count(self: *ChQueryResult) u64 {
+        return self.res.*.rows_read;
+    }
+
+    pub fn getIndex(self: *ChQueryResult) usize {
+        return self.iter.getIndex();
+    }
+    pub fn setIndex(self: *ChQueryResult, index: usize) !void {
+        return self.iter.setIndex(index);
+    }
+
+    pub fn rowAt(self: *ChQueryResult, index: usize) ?*Row {
+        // set the position of the iterator to the specified index
+        // and return the row at that position
+        const curIndex = self.iter.lines.index;
+        defer self.iter.lines.index = curIndex;
+        self.iter.setIndex(index) catch {
+            return null;
+        };
+        // get the row at the current position
+        const row = self.iter.next();
+        if (row) |r| {
+            // set the iterator back to the original position
+            self.iter.lines.index = curIndex;
+            return r;
+        }
+
+        return null;
+    }
+
+    pub fn freeCurrentRow(self: *ChQueryResult) void {
+        if (self.curRow) |current| {
+            current.deinit();
+            self.alloc.destroy(current);
+            self.curRow = null;
+        }
+    }
+
+    pub fn free(self: *ChQueryResult) void {
+        if (self.res != null) {
+            chdb.free_result_v2(self.res);
+        }
+        self.alloc.destroy(self);
+    }
 };
 
 pub const Row = struct {
