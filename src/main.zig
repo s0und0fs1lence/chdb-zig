@@ -29,7 +29,8 @@ pub fn main() !void {
     var buffer: [100:0]u8 = undefined; // Sentinel 0 ensures null termination
     const slice = try std.fmt.bufPrint(&buffer, "select * from test", .{});
     const res = try conn.query(slice, .{});
-
+    const rows = try res.toOwnedSlice(alloc, TestStruct);
+    defer alloc.free(rows);
     while (res.next()) |row| {
         const s = try row.toOwned(alloc, TestStruct);
         std.debug.print("{}\n", .{s});

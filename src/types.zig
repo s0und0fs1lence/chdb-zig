@@ -39,6 +39,32 @@ pub const ChQueryResult = struct {
         return self.curRow;
     }
 
+    /// Converts the current ChQueryResult instance to a slice of RowT
+    /// using the provided allocator. The new slice is populated with values
+    /// from the current ChQueryResult instance based on matching field names.
+    /// The function returns a slice of RowT or an error.
+    pub fn toOwnedSlice(self: *ChQueryResult, alloc: std.mem.Allocator, comptime RowT: type) ToOwnedError![]RowT {
+        const curIdx = self.iter.getIndex();
+        self.iter.setIndex(0) catch {
+            return ToOwnedError.IndexMismatch;
+        };
+        // Create a slice to hold the converted rows
+        const rowCount = self.count();
+        const rowSlice: []RowT = try alloc.alloc(RowT, rowCount);
+        errdefer alloc.free(rowSlice);
+        for (rowSlice, 0..) |_, idx| {
+            const currentRow = self.next();
+            if (currentRow) |r| {
+                const ptr: *RowT = try r.toOwned(alloc, RowT);
+                rowSlice[idx] = ptr.*;
+            }
+        }
+        self.iter.setIndex(curIdx) catch {
+            return ToOwnedError.IndexMismatch;
+        };
+        return rowSlice;
+    }
+
     pub fn count(self: *ChQueryResult) u64 {
         return self.res.*.rows_read;
     }
@@ -86,6 +112,7 @@ pub const ChQueryResult = struct {
 };
 
 pub const ToOwnedError = error{
+    IndexMismatch,
     OutOfMemory,
     /// A value's type retrieved from the Row is incompatible with the target RowT field's type.
     TypeMismatch,
@@ -112,7 +139,6 @@ pub const Row = struct {
     /// using the provided allocator. The new struct is populated with values
     /// from the current Row instance based on matching field names.
     /// The function returns a pointer to the new struct instance or an error
-    /// if the conversion fails.
     pub fn toOwned(self: *Row, alloc: std.mem.Allocator, comptime RowT: type) ToOwnedError!*RowT {
         comptime {
             const RowTInfo = @typeInfo(RowT);
