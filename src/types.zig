@@ -44,6 +44,10 @@ pub const ChQueryResult = struct {
     /// from the current ChQueryResult instance based on matching field names.
     /// The function returns a slice of RowT or an error.
     pub fn toOwnedSlice(self: *ChQueryResult, alloc: std.mem.Allocator, comptime RowT: type) ToOwnedError![]RowT {
+        if (self.count() == 0) {
+            return ToOwnedError.EmptyResultSet;
+        }
+
         const curIdx = self.iter.getIndex();
         self.iter.setIndex(0) catch {
             return ToOwnedError.IndexMismatch;
@@ -112,6 +116,7 @@ pub const ChQueryResult = struct {
 
 pub const ToOwnedError = error{
     IndexMismatch,
+    EmptyResultSet,
     OutOfMemory,
     /// A value's type retrieved from the Row is incompatible with the target RowT field's type.
     TypeMismatch,
