@@ -53,8 +53,7 @@ pub const ChQueryResult = struct {
         const rowSlice: []RowT = try alloc.alloc(RowT, rowCount);
         errdefer alloc.free(rowSlice);
         for (rowSlice, 0..) |_, idx| {
-            const currentRow = self.next();
-            if (currentRow) |r| {
+            if (self.next()) |r| {
                 const ptr: *RowT = try r.toOwned(alloc, RowT);
                 rowSlice[idx] = ptr.*;
             }
