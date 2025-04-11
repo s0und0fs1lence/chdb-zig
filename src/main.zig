@@ -5,6 +5,8 @@ const libChdb = @import("lib.zig");
 const std = @import("std");
 const sql_interpolator = @import("sql_interpolator.zig");
 
+const TestStruct = struct { id: i32 };
+
 pub fn main() !void {
     const alloc = std.heap.smp_allocator;
 
@@ -29,6 +31,9 @@ pub fn main() !void {
     const res = try conn.query(slice, .{});
 
     while (res.next()) |row| {
+        const s = try row.toOwned(alloc, TestStruct);
+        std.debug.print("{}\n", .{s});
+
         std.debug.print("{}\n", .{row._row});
         const columns = row.columns();
         for (columns) |column| {
