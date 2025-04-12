@@ -104,6 +104,7 @@ pub const ChConn = struct {
         defer self.alloc.free(q_ptr);
 
         const res = chdb.query_conn(self.conn.*, q_ptr, self.format);
+        defer chdb.free_result_v2(res);
         if (res != null) {
             return ChSingleRow.init(res);
         }

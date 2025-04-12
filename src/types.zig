@@ -319,12 +319,12 @@ pub const Row = struct {
 pub const ChSingleRow = struct {
     elapsed: f64,
     rows_read: u64,
-    error_message: [*c]u8,
+    error_message: []u8,
     pub fn init(res: [*c]chdb.local_result_v2) !ChSingleRow {
         return ChSingleRow{
             .elapsed = res.*.elapsed,
             .rows_read = res.*.rows_read,
-            .error_message = res.*.error_message,
+            .error_message = std.mem.span(res.*.error_message),
         };
     }
 
@@ -337,7 +337,7 @@ pub const ChSingleRow = struct {
     pub fn isError(self: *ChSingleRow) bool {
         return self.error_message != null;
     }
-    pub fn errorMessage(self: *ChSingleRow) [*c]u8 {
+    pub fn errorMessage(self: *ChSingleRow) []u8 {
         return self.error_message;
     }
 };
