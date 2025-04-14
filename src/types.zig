@@ -222,7 +222,7 @@ pub const Row = struct {
                         field_ptr.* = source_value.string;
                     },
                     bool => {
-                        field_ptr.* = source_value.boolean;
+                        field_ptr.* = source_value.bool;
                     },
                     else => {
                         // Handle other types or error
@@ -310,7 +310,7 @@ pub const Row = struct {
             f64 => @as(T, json_value.float),
             []u8 => @as(T, @constCast(json_value.string)),
             []const u8 => json_value.string,
-            bool => @as(T, json_value.boolean),
+            bool => @as(T, json_value.bool),
             else => null,
         };
     }
