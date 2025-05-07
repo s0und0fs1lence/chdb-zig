@@ -26,48 +26,43 @@ pub const ChConn = struct {
         // and the connection object
         var instance = try alloc.create(ChConn);
         instance.alloc = alloc;
-        // Use TabSeparatedWithNames format for DDL and other non-JSON responses
-        instance.format = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"JsonEachRow"});
+        // cast the format to a C-compatible string
+        // and allocate memory for it
+        instance.format = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"JSONEachRow"});
 
-        // For in-memory database, we just need to pass program name and path
+        // tokenize the connection string
+        // and create an array of C-compatible strings
+        // using the allocator
+        var tokenizer = std.mem.tokenizeAny(u8, connStr, "&");
         var arr = std.ArrayList([*c]u8).init(alloc);
-        defer arr.deinit();
 
-        // First argument is program name
-        const progname = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"clickhouse"});
-        defer alloc.free(progname);
-        try arr.append(progname);
+        const clickhouseStr = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"clickhouse"});
+        defer alloc.free(clickhouseStr);
+        try arr.append(clickhouseStr);
+        while (tokenizer.next()) |tok| {
+            if (tok.len == 0) {
+                @branchHint(.unlikely);
+                continue;
+            }
+            const str_ptr = try std.fmt.allocPrintZ(instance.alloc, comptime "{s}", .{tok});
+            defer instance.alloc.free(str_ptr);
+            try arr.append(str_ptr);
+        }
 
-        // Second argument is --path
-        const path_arg = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"--path"});
-        defer alloc.free(path_arg);
-        try arr.append(path_arg);
+        // Convert to C-compatible format
+        var argv = try instance.alloc.alloc([*c]u8, arr.items.len);
+        defer instance.alloc.free(argv);
 
-        // Third argument is the actual path (":memory:" or provided path)
-        const db_path = if (connStr.len == 0) ":memory:" else connStr;
-        const path_value = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{db_path});
-        defer alloc.free(path_value);
-        try arr.append(path_value);
-
-        // Convert to argc/argv format
-        const conn = chdb.connect_chdb(@intCast(arr.items.len), @ptrCast(arr.items.ptr));
+        for (arr.items, 0..) |arg, i| {
+            argv[i] = arg; // Convert to C-string pointer
+        }
+        const conn = chdb.connect_chdb(@intCast(argv.len), @ptrCast(argv.ptr));
 
         if (conn == null) {
-            return error.ConnectionFailed;
+            std.debug.print("Connection failed\n", .{});
+            return ChError.ConnectionFailed;
         }
         instance.conn = conn;
-
-        // For tests, clean up any existing test database state
-        if (std.mem.eql(u8, db_path, ":memory:")) {
-            var cleanup_result = chdb.query_conn(instance.conn.*, "DROP DATABASE IF EXISTS default", instance.format);
-            if (cleanup_result != null) {
-                chdb.free_result_v2(cleanup_result);
-            }
-            cleanup_result = chdb.query_conn(instance.conn.*, "CREATE DATABASE IF NOT EXISTS default", instance.format);
-            if (cleanup_result != null) {
-                chdb.free_result_v2(cleanup_result);
-            }
-        }
 
         return instance;
     }
@@ -82,44 +77,38 @@ pub const ChConn = struct {
     /// The function allocate memory for the query string and format string using the allocator
     /// provided in the ChConn object.
     pub fn query(self: *ChConn, q: []u8, values: anytype) !*ChQueryResult {
+        // discard for the moment;
         const full_query = try sql_interpolator.interpolate(self.alloc, q, values);
-        defer self.alloc.free(full_query);
         const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{full_query});
         defer self.alloc.free(q_ptr);
 
-        if (self.conn == null) return error.ConnectionFailed;
-        const res = chdb.query_conn(self.conn.*, q_ptr, "JSONEachRow"); // Use JSON for data queries
-        if (res == null) return error.SqlError;
+        const res = chdb.query_conn(self.conn.*, q_ptr, self.format);
+        if (res != null) {
+            const result_struct = res.*; // Unwrap the optional pointer
 
-        if (res.*.error_message != null) {
-            const msg = std.mem.span(res.*.error_message);
-            std.debug.print("SQL Error: {s}\n", .{msg});
-            chdb.free_result_v2(res);
-            return error.SqlError;
+            if (result_struct.error_message == null) {
+                return try ChQueryResult.init(res, self.alloc);
+            } else {
+                chdb.free_result_v2(res);
+                return error.NotValid;
+            }
         }
-
-        return ChQueryResult.init(res, self.alloc);
+        return ChError.NotValid;
     }
 
     pub fn exec(self: *ChConn, q: []u8, values: anytype) !ChSingleRow {
+        // discard for the moment;
         const full_query = try sql_interpolator.interpolate(self.alloc, q, values);
-        defer self.alloc.free(full_query);
+
         const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{full_query});
         defer self.alloc.free(q_ptr);
 
-        if (self.conn == null) return error.ConnectionFailed;
         const res = chdb.query_conn(self.conn.*, q_ptr, self.format);
-        if (res == null) return error.SqlError;
-
-        if (res.*.error_message != null) {
-            const msg = std.mem.span(res.*.error_message);
-            std.debug.print("SQL Error: {s}\n", .{msg});
-            chdb.free_result_v2(res);
-            return error.SqlError;
+        defer chdb.free_result_v2(res);
+        if (res != null) {
+            return ChSingleRow.init(res);
         }
-
-        const result = ChSingleRow.init(res);
-        return result;
+        return ChError.NotValid;
     }
 
     pub fn deinit(self: *ChConn) void {

@@ -13,50 +13,103 @@ pub const ChError = error{
 };
 
 pub const ChQueryResult = struct {
-    result: *chdb.local_result_v2,
+    res: [*c]chdb.local_result_v2,
     alloc: std.mem.Allocator,
-    json_iterator: ?JsonLineIterator,
-    total_rows: usize,
-    current_row: usize,
-
-    pub fn init(res: *chdb.local_result_v2, alloc: std.mem.Allocator) !*ChQueryResult {
-        const rows = res.rows_read;
-        const instance = try alloc.create(ChQueryResult);
-        instance.* = .{
-            .result = res,
-            .alloc = alloc,
-            .json_iterator = if (res.buf != null) JsonLineIterator.init(std.mem.span(res.buf), rows, alloc) else null,
-            .total_rows = rows,
-            .current_row = 0,
-        };
+    iter: JsonLineIterator,
+    curRow: ?*Row,
+    pub fn init(r: [*c]chdb.local_result_v2, alloc: std.mem.Allocator) !*ChQueryResult {
+        var instance = try alloc.create(ChQueryResult);
+        instance.res = r;
+        instance.alloc = alloc;
+        instance.iter = JsonLineIterator.init(std.mem.span(instance.res.*.buf), instance.res.*.rows_read, instance.alloc);
+        instance.curRow = null;
         return instance;
     }
-
     pub fn next(self: *ChQueryResult) ?*Row {
-        if (self.json_iterator) |*iterator| {
-            return iterator.next();
+        // the next function is used to get the next row from the iterator
+        // and return it as a Row object
+        // if the iterator is at the end, return null
+        // if we hold a current row, free it
+        if (self.curRow) |current| {
+            current.deinit();
+            self.alloc.destroy(current);
+            self.curRow = null;
         }
-        return null;
+        self.curRow = self.iter.next();
+        return self.curRow;
+    }
+
+    /// Converts the current ChQueryResult instance to a slice of RowT
+    /// using the provided allocator. The new slice is populated with values
+    /// from the current ChQueryResult instance based on matching field names.
+    /// The function returns a slice of RowT or an error.
+    pub fn toOwnedSlice(self: *ChQueryResult, alloc: std.mem.Allocator, comptime RowT: type) ToOwnedError![]RowT {
+        if (self.count() == 0) {
+            return ToOwnedError.EmptyResultSet;
+        }
+
+        const curIdx = self.iter.getIndex();
+        self.iter.setIndex(0) catch {
+            return ToOwnedError.IndexMismatch;
+        };
+        // Create a slice to hold the converted rows
+        const rowCount = self.count();
+        const rowSlice: []RowT = try alloc.alloc(RowT, rowCount);
+        errdefer alloc.free(rowSlice);
+        for (rowSlice, 0..) |_, idx| {
+            if (self.next()) |r| {
+                const ptr: *RowT = try r.toOwned(alloc, RowT);
+                rowSlice[idx] = ptr.*;
+            }
+        }
+        self.iter.setIndex(curIdx) catch {
+            return ToOwnedError.IndexMismatch;
+        };
+        return rowSlice;
+    }
+
+    pub fn count(self: *ChQueryResult) u64 {
+        return self.res.*.rows_read;
     }
 
     pub fn getIndex(self: *ChQueryResult) usize {
-        if (self.json_iterator) |*iterator| {
-            return iterator.getIndex();
-        }
-        return 0;
+        return self.iter.getIndex();
+    }
+    pub fn setIndex(self: *ChQueryResult, index: usize) !void {
+        return self.iter.setIndex(index);
     }
 
-    pub fn setIndex(self: *ChQueryResult, index: usize) !void {
-        if (self.json_iterator) |*iterator| {
-            try iterator.setIndex(index);
+    pub fn rowAt(self: *ChQueryResult, index: usize) ?*Row {
+        // set the position of the iterator to the specified index
+        // and return the row at that position
+        const curIndex = self.iter.lines.index;
+        defer self.iter.lines.index = curIndex;
+        self.iter.setIndex(index) catch {
+            return null;
+        };
+        // get the row at the current position
+        const row = self.iter.next();
+        if (row) |r| {
+            // set the iterator back to the original position
+            self.iter.lines.index = curIndex;
+            return r;
+        }
+
+        return null;
+    }
+
+    pub fn freeCurrentRow(self: *ChQueryResult) void {
+        if (self.curRow) |current| {
+            current.deinit();
+            self.alloc.destroy(current);
+            self.curRow = null;
         }
     }
 
     pub fn free(self: *ChQueryResult) void {
-        if (self.json_iterator) |*iterator| {
-            iterator.deinit();
+        if (self.res != null) {
+            chdb.free_result_v2(self.res);
         }
-        chdb.free_result_v2(self.result);
         self.alloc.destroy(self);
     }
 };
@@ -264,15 +317,27 @@ pub const Row = struct {
 };
 
 pub const ChSingleRow = struct {
-    result: *chdb.local_result_v2,
-    len: usize,
+    elapsed: f64,
     rows_read: u64,
-
-    pub fn init(res: *chdb.local_result_v2) ChSingleRow {
+    error_message: [*c]u8,
+    pub fn init(res: [*c]chdb.local_result_v2) !ChSingleRow {
         return ChSingleRow{
-            .result = res,
-            .len = if (res.buf != null) res.len else 0,
-            .rows_read = res.rows_read,
+            .elapsed = res.*.elapsed,
+            .rows_read = res.*.rows_read,
+            .error_message = res.*.error_message,
         };
+    }
+
+    pub fn elapsedSec(self: *ChSingleRow) f64 {
+        return self.elapsed;
+    }
+    pub fn affectedRows(self: *ChSingleRow) u64 {
+        return self.rows_read;
+    }
+    pub fn isError(self: *ChSingleRow) bool {
+        return self.error_message != null;
+    }
+    pub fn errorMessage(self: *ChSingleRow) [*c]u8 {
+        return self.error_message;
     }
 };

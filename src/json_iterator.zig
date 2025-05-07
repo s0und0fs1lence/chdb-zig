@@ -1,78 +1,78 @@
 const std = @import("std");
-const types = @import("types.zig");
-const Row = types.Row;
+
+const Row = @import("types.zig").Row; // Import the Row struct from types.zig
 
 pub const JsonLineIterator = struct {
-    lines: std.mem.TokenIterator(u8, .scalar),
-    alloc: std.mem.Allocator,
-    total_lines: u64,
-    current_line: u64,
-    current_row: ?*Row,
-
-    pub fn init(content: []const u8, rows: u64, alloc: std.mem.Allocator) JsonLineIterator {
+    buffer: []const u8, // The entire JSON buffer to be processed
+    lines: std.mem.SplitIterator(u8, std.mem.DelimiterType.scalar), // An iterator that yields each line from the buffer
+    allocator: std.mem.Allocator, // An allocator to be used for parsing JSON within each line
+    curLine: usize,
+    rowCount: usize, // The number of rows in the buffer
+    pub fn init(buffer: []const u8, rowCount: usize, allocator: std.mem.Allocator) JsonLineIterator {
         return .{
-            .lines = std.mem.tokenizeScalar(u8, content, '\n'),
-            .alloc = alloc,
-            .total_lines = rows,
-            .current_line = 0,
-            .current_row = null,
+            .buffer = buffer,
+            .rowCount = rowCount,
+            .lines = std.mem.splitScalar(u8, buffer, '\n'),
+            .allocator = allocator,
+            .curLine = 0,
         };
     }
 
-    pub fn deinit(self: *JsonLineIterator) void {
-        if (self.current_row) |row| {
-            row.deinit();
-            self.alloc.destroy(row);
-            self.current_row = null;
-        }
-    }
-
     pub fn next(self: *JsonLineIterator) ?*Row {
-        // Clean up previous row if it exists
-        if (self.current_row) |row| {
-            row.deinit();
-            self.alloc.destroy(row);
-            self.current_row = null;
-        }
-
-        if (self.current_line >= self.total_lines) return null;
-
         if (self.lines.next()) |line| {
-            if (line.len == 0) return null;
-
-            const parsed = std.json.parseFromSlice(std.json.Value, self.alloc, line, .{}) catch return null;
-            const row = self.alloc.create(Row) catch return null;
-            row.* = Row{ ._row = parsed };
-            self.current_line += 1;
-            self.current_row = row;
-            return row;
+            self.curLine += 1;
+            const parsed_value = std.json.parseFromSlice(std.json.Value, self.allocator, line, .{}) catch {
+                return null;
+            };
+            // Attempt to parse the current line as a JSON object using std.json.parseFromSlice
+            const r = self.allocator.create(Row) catch {
+                return null;
+            };
+            r._row = parsed_value;
+            return r;
         }
-        return null;
-    }
-
-    pub fn getIndex(self: *JsonLineIterator) usize {
-        return @intCast(self.current_line);
+        return null; // Signal the end of the buffer
     }
 
     pub fn setIndex(self: *JsonLineIterator, index: usize) !void {
-        // Clean up current row if it exists
-        if (self.current_row) |row| {
-            row.deinit();
-            self.alloc.destroy(row);
-            self.current_row = null;
+        // reset the iterator to count the lines
+
+        if (index > self.rowCount) {
+            return error.IndexOutOfBounds;
+        }
+        if (index < 0) {
+            return error.IndexOutOfBounds;
+        }
+        var prevLine = self.curLine;
+        var prevIndex = self.lines.index;
+        if (index <= self.curLine) {
+            // if the index is less than the current line, reset the iterator
+            // otherwise, just continue from the current position
+            prevLine = 0;
+            self.lines.reset();
         }
 
-        if (index > self.total_lines) return error.IndexOutOfBounds;
+        var isValid = false;
+        while (self.lines.next()) |_| {
+            if (prevLine == index) {
+                self.lines.index = prevIndex;
 
-        // Reset iterator
-        self.lines.reset();
-        self.current_line = 0;
-
-        // Advance to desired position
-        var i: usize = 0;
-        while (i < index) : (i += 1) {
-            _ = self.lines.next();
-            self.current_line += 1;
+                isValid = true;
+                break;
+            }
+            prevLine += 1;
+            prevIndex = self.lines.index;
         }
+        self.lines.index = prevIndex;
+        if (!isValid) {
+            return error.IndexOutOfBounds;
+        }
+    }
+
+    pub fn getIndex(self: *JsonLineIterator) usize {
+        return self.curLine;
+    }
+    pub fn count(self: *JsonLineIterator) usize {
+        return self.rowCount;
     }
 };
