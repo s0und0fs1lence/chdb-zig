@@ -33,16 +33,48 @@ pub fn testConnection() !void {
     var conn = try chdb_zig.ChdbConnection.init(allocator, array);
     defer conn.deinit();
 
-    var result = try conn.queryStreaming(@constCast("select * from system.numbers limit 100000;"), @constCast("CSV"));
+    var result = try conn.queryStreaming(@constCast("select * from system.numbers limit 10;"), @constCast("JSONEachRow"));
     defer result.deinit();
-    var result2 = try conn.nextStreamingChunk(&result);
-    defer result2.deinit();
-    const rows = result2.rowsRead();
-    const bytesRead = result2.bytesRead();
-    const data = result2.data();
-    std.debug.print("Bytes read: {d}\n", .{bytesRead});
-    std.debug.print("Rows read: {d}\n", .{rows});
-    std.debug.print("Data size: {s}\n", .{data});
+    if (!result.isSuccess()) {
+        const err = result.getError();
+        if (err != null) {
+            std.debug.print("Query failed: {s}\n", .{err.?});
+            return;
+        }
+        std.debug.print("Query failed: no error\n", .{});
+        return;
+    }
+    while (true) {
+        var result2 = try conn.nextStreamingChunk(&result);
+        defer result2.deinit();
+        if (!result2.isSuccess()) {
+            const err = result2.getError();
+            if (err != null) {
+                std.debug.print("Query failed: {s}\n", .{err.?});
+                break;
+            }
+            std.debug.print("Query failed: no error\n", .{});
+            break;
+        }
+        var arena = std.heap.ArenaAllocator.init(allocator);
+
+        var it: *chdb_zig.ChdbIterator = @constCast(&result2.iter(arena.allocator()));
+        const Us = struct {
+            number: u64,
+        };
+        while (try it.nextRowAs(Us)) |row| {
+            std.debug.print("Number: {d}\n", .{row.number});
+        }
+        _ = arena.reset(.free_all);
+
+        const rows = result2.rowsRead();
+        const bytesRead = result2.bytesRead();
+        const data = result2.data();
+
+        std.debug.print("Bytes read: {d}\n", .{bytesRead});
+        std.debug.print("Rows read: {d}\n", .{rows});
+        std.debug.print("Data size: {s}\n", .{data});
+    }
 }
 
 test "basic add functionality" {

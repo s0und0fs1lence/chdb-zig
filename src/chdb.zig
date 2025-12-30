@@ -84,7 +84,7 @@ pub const ChdbConnection = struct {
             return ChdbError.InvalidResult;
         }
         const res = chdb_headers.chdb_stream_fetch_result(self.conn.*, result.res);
-        if (res != 0) {
+        if (res == null) {
             return ChdbError.QueryFailed;
         }
         return ChdbResult{ .res = res, ._isStreaming = true };
@@ -118,6 +118,15 @@ pub const ChdbResult = struct {
         }
         const len = chdb_headers.chdb_result_length(self.res);
         return buf[0..len];
+    }
+
+    /// Returns an iterator over the result rows (NDJSON)
+    /// Allocator is needed for any allocations during iteration
+    /// The iterator returns rows as slices of the original buffer (zero-copy)
+    /// But it can allocate a json parser if needed
+    /// Pass an arena allocator for best performance, otherwise free each row manually
+    pub fn iter(self: *ChdbResult, arena: Allocator) ChdbIterator {
+        return ChdbIterator.init(self, arena);
     }
 
     pub fn isStreaming(self: *ChdbResult) bool {
@@ -166,7 +175,7 @@ pub const ChdbResult = struct {
         return chdb_headers.chdb_result_storage_bytes_read(self.res);
     }
 
-    pub fn getError(self: *ChdbResult) ?[]u8 {
+    pub fn getError(self: *ChdbResult) ?[]const u8 {
         if (self.res == null) {
             return null;
         }
@@ -182,5 +191,74 @@ pub const ChdbResult = struct {
             return false;
         }
         return self.getError() == null;
+    }
+};
+
+//NDJSON iterator for ChdbResult
+pub const ChdbIterator = struct {
+    // We store the raw buffer and use an iterator that doesn't allocate
+    iter: std.mem.SplitIterator(u8, .scalar),
+    _rowCount: usize,
+    currentIndex: usize,
+    allocator: Allocator,
+
+    pub fn init(result: *ChdbResult, allocator: Allocator) ChdbIterator {
+        const data_buf = result.data();
+        if (data_buf.len == 0) {
+            return ChdbIterator{
+                .iter = std.mem.splitScalar(u8, "", '\n'),
+                ._rowCount = 0,
+                .currentIndex = 0,
+                .allocator = allocator,
+            };
+        }
+
+        // Count rows once if you need rowCount, otherwise skip this loop
+        // to be even faster.
+        var count: usize = 0;
+        for (data_buf) |byte| {
+            if (byte == '\n') count += 1;
+        }
+
+        // Handle files that don't end in a trailing newline
+        if (data_buf[data_buf.len - 1] != '\n') count += 1;
+
+        return ChdbIterator{
+            .iter = std.mem.splitScalar(u8, data_buf, '\n'),
+            ._rowCount = count,
+            .currentIndex = 0,
+            .allocator = allocator,
+        };
+    }
+
+    /// Returns the next row as a slice of the original buffer (Zero-copy)
+    pub fn nextRow(self: *ChdbIterator) ?[]const u8 {
+        while (self.iter.next()) |line| {
+            // Chdb sometimes leaves empty lines at the end of NDJSON
+            if (line.len == 0) continue;
+
+            self.currentIndex += 1;
+            return line;
+        }
+        return null;
+    }
+
+    pub fn nextRowAs(self: *ChdbIterator, comptime T: type) ChdbError!?T {
+        while (self.iter.next()) |line| {
+            // Chdb sometimes leaves empty lines at the end of NDJSON
+            if (line.len == 0) continue;
+
+            const parsed = std.json.parseFromSlice(T, self.allocator, line, .{}) catch {
+                return ChdbError.InvalidResult;
+            };
+
+            self.currentIndex += 1;
+            return parsed.value;
+        }
+        return null;
+    }
+
+    pub fn rowCount(self: *ChdbIterator) usize {
+        return self._rowCount;
     }
 };
