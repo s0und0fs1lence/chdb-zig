@@ -10,7 +10,7 @@ const ChQueryResult = types.ChQueryResult;
 const sql_interpolator = @import("sql_interpolator.zig");
 
 pub const ChConn = struct {
-    conn: [*c][*c]chdb.chdb_conn,
+    conn: [*c]chdb.chdb_connection,
     alloc: std.mem.Allocator,
     format: [:0]u8,
     /// This function is used to initialize a connection to the ClickHouse database.
@@ -28,7 +28,7 @@ pub const ChConn = struct {
         instance.alloc = alloc;
         // cast the format to a C-compatible string
         // and allocate memory for it
-        instance.format = try std.fmt.allocPrintZ(alloc, comptime "{s}", .{"JSONEachRow"});
+        instance.format = try std.fmt.allocPrintSentinel(alloc, comptime "{s}", .{"JSONEachRow"}, 0);
 
         // tokenize the connection string
         // and create an array of C-compatible strings
@@ -56,7 +56,7 @@ pub const ChConn = struct {
         for (arr.items, 0..) |arg, i| {
             argv[i] = arg; // Convert to C-string pointer
         }
-        const conn = chdb.connect_chdb(@intCast(argv.len), @ptrCast(argv.ptr));
+        const conn = chdb.chdb_connect(@intCast(argv.len), @ptrCast(argv.ptr));
 
         if (conn == null) {
             std.debug.print("Connection failed\n", .{});
@@ -82,14 +82,14 @@ pub const ChConn = struct {
         const q_ptr = try std.fmt.allocPrintZ(self.alloc, comptime "{s}", .{full_query});
         defer self.alloc.free(q_ptr);
 
-        const res = chdb.query_conn(self.conn.*, q_ptr, self.format);
+        const res = chdb.chdb_query(self.conn.*, q_ptr, self.format);
         if (res != null) {
             const result_struct = res.*; // Unwrap the optional pointer
-
+            chdb.chdb_result_error(res);
             if (result_struct.error_message == null) {
                 return try ChQueryResult.init(res, self.alloc);
             } else {
-                chdb.free_result_v2(res);
+                chdb.chdb_free_result_v2(res);
                 return error.NotValid;
             }
         }
