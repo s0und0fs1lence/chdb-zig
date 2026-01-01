@@ -129,6 +129,11 @@ pub fn build(b: *std.Build) void {
         .use_llvm = true,
     });
 
+    // The test runner needs to know where the C headers and library are
+    mod_tests.addIncludePath(b.path("vendor/chdb"));
+    mod_tests.addObjectFile(b.path("vendor/chdb/libchdb.a"));
+    mod_tests.linkLibC();
+
     // A run step that will run the test executable.
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
@@ -139,6 +144,10 @@ pub fn build(b: *std.Build) void {
         .root_module = exe.root_module,
         .use_llvm = true,
     });
+
+    exe_tests.addIncludePath(b.path("vendor/chdb"));
+    exe_tests.addObjectFile(b.path("vendor/chdb/libchdb.a"));
+    exe_tests.linkLibC();
 
     // A run step that will run the second test executable.
     const run_exe_tests = b.addRunArtifact(exe_tests);
