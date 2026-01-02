@@ -2,3 +2,4 @@
 /.zig-cache
 /lib/libchdb.so
 zig-out/
+/vendor/chdb/libchdb.a

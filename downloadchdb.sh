@@ -10,14 +10,14 @@ case "$(uname -s)" in
         if [[ $(uname -m) == "aarch64" ]]; then
             PLATFORM="linux-aarch64-libchdb.tar.gz"
         else
-            PLATFORM="linux-x86_64-libchdb.tar.gz"
+            PLATFORM="linux-x86_64-libchdb-static.tar.gz"
         fi
         ;;
     Darwin)
         if [[ $(uname -m) == "arm64" ]]; then
             PLATFORM="macos-arm64-libchdb.tar.gz"
         else
-            PLATFORM="macos-x86_64-libchdb.tar.gz"
+            PLATFORM="macos-x86_64-libchdb-static.tar.gz"
         fi
         ;;
     *)
