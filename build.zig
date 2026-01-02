@@ -21,6 +21,25 @@ pub fn build(b: *std.Build) void {
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
 
+    // Determine the dependency name based on the target OS and CPU
+    const target_os = target.result.os.tag;
+    const target_arch = target.result.cpu.arch;
+
+    const dep_name = if (target_os == .linux and target_arch == .x86_64)
+        "chdb_linux_x86_64_static"
+    else if (target_os == .linux and target_arch == .aarch64)
+        "chdb_linux_aarch64_static"
+    else {
+        // Fallback or error for unsupported platforms
+        @panic("Unsupported platform for chDB");
+    };
+
+    // This ONLY fetches the selected binary
+    const chdb_bin = b.dependency(dep_name, .{});
+
+    // Link the paths from the fetched dependency
+    // Note: Adjust folder names ("lib" or "include") based on the .tar.gz structure
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -41,8 +60,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    mod.addIncludePath(b.path("vendor/chdb"));
-    mod.addObjectFile(b.path("vendor/chdb/libchdb.a"));
+    mod.addIncludePath(chdb_bin.path("."));
+    mod.addObjectFile(chdb_bin.path("libchdb.a"));
     mod.link_libc = true;
 
     // Here we define an executable. An executable needs to have a root module
@@ -130,8 +149,8 @@ pub fn build(b: *std.Build) void {
     });
 
     // The test runner needs to know where the C headers and library are
-    mod_tests.addIncludePath(b.path("vendor/chdb"));
-    mod_tests.addObjectFile(b.path("vendor/chdb/libchdb.a"));
+    mod_tests.addIncludePath(chdb_bin.path("."));
+    mod_tests.addObjectFile(chdb_bin.path("libchdb.a"));
     mod_tests.linkLibC();
 
     // A run step that will run the test executable.
@@ -145,8 +164,8 @@ pub fn build(b: *std.Build) void {
         .use_llvm = true,
     });
 
-    exe_tests.addIncludePath(b.path("vendor/chdb"));
-    exe_tests.addObjectFile(b.path("vendor/chdb/libchdb.a"));
+    exe_tests.addIncludePath(chdb_bin.path("."));
+    exe_tests.addObjectFile(chdb_bin.path("libchdb.a"));
     exe_tests.linkLibC();
 
     // A run step that will run the second test executable.

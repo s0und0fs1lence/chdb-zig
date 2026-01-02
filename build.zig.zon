@@ -32,6 +32,14 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
+        .chdb_linux_aarch64_static = .{
+            .url = "https://github.com/chdb-io/chdb/releases/download/v4.0.0b3/linux-aarch64-libchdb-static.tar.gz",
+            .hash = "N-V-__8AAOKnSFKj76m8cYgLGoCLZT0pK8gid2LDYVLa6zlJ", // sha256
+        },
+        .chdb_linux_x86_64_static = .{
+            .url = "https://github.com/chdb-io/chdb/releases/download/v4.0.0b3/linux-x86_64-libchdb-static.tar.gz",
+            .hash = "N-V-__8AABAUSVOH78QNsJCkvrUYKnU0VNZLFNGeAgbHPAiA", // sha256
+        },
         // See `zig fetch --save <url>` for a command-line interface for adding dependencies.
         //.example = .{
         //    // When updating this field to a new URL, be sure to delete the corresponding
