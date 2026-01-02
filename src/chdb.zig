@@ -255,6 +255,7 @@ pub const ChdbIterator = struct {
     _rowCount: usize,
     currentIndex: usize,
     allocator: Allocator,
+    dataSizeInBytes: usize,
 
     pub fn init(result: *ChdbResult, allocator: Allocator) ChdbIterator {
         const data_buf = result.data();
@@ -264,6 +265,7 @@ pub const ChdbIterator = struct {
                 ._rowCount = 0,
                 .currentIndex = 0,
                 .allocator = allocator,
+                .dataSizeInBytes = 0,
             };
         }
 
@@ -282,7 +284,12 @@ pub const ChdbIterator = struct {
             ._rowCount = count,
             .currentIndex = 0,
             .allocator = allocator,
+            .dataSizeInBytes = data_buf.len,
         };
+    }
+
+    pub fn maxMemoryUsage(self: *ChdbIterator) usize {
+        return self.dataSizeInBytes * 2;
     }
 
     fn getArenaAllocator(self: *ChdbIterator) ChdbError!*std.heap.ArenaAllocator {
@@ -292,8 +299,7 @@ pub const ChdbIterator = struct {
             arena.deinit();
             self.allocator.destroy(arena);
         }
-        const arena_allocator = arena.allocator();
-        return arena_allocator;
+        return arena;
     }
 
     /// Returns the next row as a slice of the original buffer (Zero-copy)
@@ -313,7 +319,7 @@ pub const ChdbIterator = struct {
 
         const arena = try self.getArenaAllocator();
 
-        const parsed = try std.json.parseFromSlice(T, arena, line, .{
+        const parsed = try std.json.parseFromSliceLeaky(T, arena.allocator(), line, .{
             .ignore_unknown_fields = true,
         });
 
@@ -357,12 +363,7 @@ pub const ChdbIterator = struct {
     }
 
     pub fn sliceAsOwned(self: *ChdbIterator, comptime T: type, start: usize, end: usize) ChdbError!ChdbResultValue(T) {
-        var arena = self.allocator.create(std.heap.ArenaAllocator) catch return ChdbError.AllocatorOutOfMemory;
-        arena.* = std.heap.ArenaAllocator.init(self.allocator);
-        errdefer {
-            arena.deinit();
-            self.allocator.destroy(arena);
-        }
+        const arena = try self.getArenaAllocator();
         const arena_allocator = arena.allocator();
         var rows: std.ArrayList(T) = .{};
         self.reset();
