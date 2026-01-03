@@ -26,9 +26,9 @@ pub fn build(b: *std.Build) void {
     const target_arch = target.result.cpu.arch;
 
     const dep_name = if (target_os == .linux and target_arch == .x86_64)
-        "chdb_linux_x86_64_static"
+        "chdb_linux_x86_64_dynamic"
     else if (target_os == .linux and target_arch == .aarch64)
-        "chdb_linux_aarch64_static"
+        "chdb_linux_aarch64_dynamic"
     else {
         // Fallback or error for unsupported platforms
         @panic("Unsupported platform for chDB");
@@ -61,7 +61,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     mod.addIncludePath(chdb_bin.path("."));
-    mod.addObjectFile(chdb_bin.path("libchdb.a"));
+    mod.addLibraryPath(chdb_bin.path("."));
+    mod.linkSystemLibrary("chdb", .{});
+    mod.addRPath(chdb_bin.path("."));
     mod.link_libc = true;
 
     // Here we define an executable. An executable needs to have a root module
@@ -148,9 +150,11 @@ pub fn build(b: *std.Build) void {
         .use_llvm = true,
     });
 
-    // The test runner needs to know where the C headers and library are
     mod_tests.addIncludePath(chdb_bin.path("."));
-    mod_tests.addObjectFile(chdb_bin.path("libchdb.a"));
+    mod_tests.addLibraryPath(chdb_bin.path("."));
+    mod_tests.linkSystemLibrary("chdb");
+    mod_tests.addRPath(chdb_bin.path("."));
+    // The test runner needs to know where the C headers and library are
     mod_tests.linkLibC();
 
     // A run step that will run the test executable.
@@ -165,7 +169,9 @@ pub fn build(b: *std.Build) void {
     });
 
     exe_tests.addIncludePath(chdb_bin.path("."));
-    exe_tests.addObjectFile(chdb_bin.path("libchdb.a"));
+    exe_tests.addLibraryPath(chdb_bin.path("."));
+    exe_tests.linkSystemLibrary("chdb");
+    exe_tests.addRPath(chdb_bin.path("."));
     exe_tests.linkLibC();
 
     // A run step that will run the second test executable.
