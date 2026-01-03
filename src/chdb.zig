@@ -319,7 +319,7 @@ pub const ChdbIterator = struct {
 
         const arena = try self.getArenaAllocator();
 
-        const parsed = try std.json.parseFromSliceLeaky(T, arena.allocator(), line, .{
+        const parsed = try std.json.parseFromSlice(T, arena.allocator(), line, .{
             .ignore_unknown_fields = true,
         });
 

@@ -15,7 +15,7 @@ pub fn main() !void {
     const cHandle = try chdb_zig.ChdbConnection.init(allocator, array);
     defer cHandle.deinit();
     var result = try cHandle.query(@constCast("select *,'Ass' as t from system.numbers limit 1000;"));
-    var iter: *chdb_zig.ChdbIterator = @constCast(&result.iter(allocator));
+    var iter = result.iter(allocator);
     const Us = struct {
         number: i64,
         t: []u8,
