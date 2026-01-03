@@ -30,7 +30,7 @@ pub const ChdbConnection = struct {
         instance.allocator = allocator;
         errdefer allocator.destroy(instance);
         // Track duplicated strings so we can free them later
-        var allocated_strings: std.ArrayList([]u8) = .{};
+        var allocated_strings: std.ArrayList([:0]u8) = .{};
         var lst: std.ArrayList([*c]u8) = .{};
         defer {
             for (allocated_strings.items) |s| allocator.free(s);
