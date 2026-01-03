@@ -14,27 +14,45 @@ pub const ChdbError = error{
     // Add more error cases as needed
 };
 
+pub const ChdbConnectionOptions = struct {
+    // Future options can be added here
+    UseMultiQuery: bool = false,
+    Path: ?[]const u8 = null,
+};
+
 pub const ChdbConnection = struct {
     conn: [*c][*c]chdb_headers.struct_chdb_connection_,
     allocator: Allocator,
     // At the moment, only JSONEachRow is supported
     defaultFormat: [:0]u8,
-    pub fn init(allocator: Allocator, connectionString: [][]u8) ChdbError!*ChdbConnection {
+    pub fn init(allocator: Allocator, options: ChdbConnectionOptions) ChdbError!*ChdbConnection {
         var instance = allocator.create(ChdbConnection) catch return ChdbError.AllocatorOutOfMemory;
         instance.allocator = allocator;
-        const argc: c_int = @intCast(connectionString.len);
-        var argv_slice = allocator.alloc([*c]u8, connectionString.len) catch {
-            allocator.destroy(instance);
-            return ChdbError.AllocatorOutOfMemory;
-        };
-        defer allocator.free(argv_slice); // Free this list of pointers after the call
-        if (connectionString.len > 0) {
-            for (connectionString, 0..) |arg, i| {
-                argv_slice[i] = @ptrCast(arg.ptr);
-            }
+        errdefer allocator.destroy(instance);
+        // Track duplicated strings so we can free them later
+        var allocated_strings: std.ArrayList([]u8) = .{};
+        var lst: std.ArrayList([*c]u8) = .{};
+        defer {
+            for (allocated_strings.items) |s| allocator.free(s);
+            allocated_strings.deinit(allocator);
+            lst.deinit(allocator);
         }
 
-        const conn = chdb_headers.chdb_connect(argc, argv_slice.ptr);
+        lst.append(allocator, @constCast("chdb")) catch return ChdbError.AllocatorOutOfMemory;
+
+        if (options.Path) |path| {
+            const duped_path = allocator.dupeZ(u8, path) catch return ChdbError.AllocatorOutOfMemory;
+            allocated_strings.append(allocator, duped_path) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
+
+            lst.append(allocator, @constCast("--path")) catch return ChdbError.AllocatorOutOfMemory;
+            lst.append(allocator, @constCast(duped_path)) catch return ChdbError.AllocatorOutOfMemory;
+        }
+        if (options.UseMultiQuery) {
+            lst.append(allocator, @constCast("--multiquery")) catch return ChdbError.AllocatorOutOfMemory;
+        }
+
+        // Now when we call this, duped_path is still valid memory
+        const conn = chdb_headers.chdb_connect(@intCast(lst.items.len), lst.items.ptr);
         if (conn == null) {
             allocator.destroy(instance);
             return ChdbError.ConnectionFailed;

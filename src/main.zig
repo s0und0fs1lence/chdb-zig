@@ -9,33 +9,57 @@ pub fn main() !void {
     std.debug.print("All your {s} are belong to us.\n", .{a});
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
-    var allocator = gpa.allocator();
-    const array = try allocator.alloc([]u8, 0);
-    defer allocator.free(array);
-    const cHandle = try chdb_zig.ChdbConnection.init(allocator, array);
-    defer cHandle.deinit();
-    var result = try cHandle.query(@constCast("select *,'Ass' as t from system.numbers limit 1000;"));
-    var iter = result.iter(allocator);
-    const Us = struct {
-        number: i64,
-        t: []u8,
+    const allocator = gpa.allocator();
+    const options = chdb_zig.ChdbConnectionOptions{
+        .UseMultiQuery = true,
+        .Path = "/workspaces/chdb-zig/test.db",
     };
 
-    const slice = try iter.sliceAsOwned(Us, 0, 1000);
-    defer slice.deinit();
-    switch (slice.data) {
-        .single => |_| @panic("could not be possible"),
-        .slice => |users| {
-            std.debug.print("Found {} users\n", .{users.len});
-            for (users) |u| std.debug.print("Number: {d} - T: {s}\n", .{ u.number, u.t });
-        },
+    const cHandle = try chdb_zig.initConnection(allocator, options);
+    defer cHandle.deinit();
+
+    const query =
+        \\CREATE TABLE IF NOT EXISTS my_parquet_table ENGINE = MergeTree() 
+        \\ ORDER BY tuple() -- Adjust the ordering key as needed for performance
+        \\ AS SELECT * FROM url('https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_0.parquet');
+    ;
+    var result = try cHandle.query(@constCast(query));
+    if (!result.isSuccess()) {
+        std.debug.print("Query failed: {?s}\n", .{result.getError()});
+        @panic("ERROR");
     }
+    std.debug.print("Insert Elapsed time: {d}\n", .{result.elapsedTime()});
+    std.debug.print("Insert Rows read: {d}\n", .{result.rowsRead()});
+    std.debug.print("Insert Bytes read: {d}\n", .{result.bytesRead()});
+    var result2 = try cHandle.query(@constCast("SELECT URL, COUNT(*) FROM my_parquet_table group by URL order by COUNT(*) desc LIMIT 10"));
+    if (!result2.isSuccess()) {
+        std.debug.print("Query failed: {?s}\n", .{result2.getError()});
+        @panic("ERROR");
+    }
+    var iter = result2.iter(allocator);
+
+    const slice = iter.nextRow();
+    if (slice) |s| {
+        std.debug.print("Got a row! {s}\n", .{s});
+        std.debug.print("Elapsed time: {d}\n", .{result2.elapsedTime()});
+        std.debug.print("Rows read: {d}\n", .{result2.rowsRead()});
+        std.debug.print("Bytes read: {d}\n", .{result2.bytesRead()});
+    } else {
+        std.debug.print("No rows found.\n", .{});
+    }
+    // defer slice.deinit();
+    // switch (slice.data) {
+    //     .single => |_| @panic("could not be possible"),
+    //     .slice => |users| {
+    //         std.debug.print("Found {} users\n", .{users.len});
+    //         for (users) |u| std.debug.print("Number: {s}\n", .{u});
+    //     },
+    // }
 }
 
 test "basic connection initialization" {
     const allocator = std.testing.allocator;
-    const array = try allocator.alloc([]u8, 0);
-    defer allocator.free(array);
-    const cHandle = try chdb_zig.ChdbConnection.init(allocator, array);
+    const options = chdb_zig.ChdbConnectionOptions{ .UseMultiQuery = true };
+    const cHandle = try chdb_zig.ChdbConnection.init(allocator, options);
     try std.testing.expect(cHandle.conn != null);
 }

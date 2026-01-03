@@ -7,5 +7,6 @@ pub const ChdbError = chdb_zig.ChdbError;
 pub const ChdbResult = chdb_zig.ChdbResult;
 pub const ChdbStreamingHandle = chdb_zig.ChdbStreamingHandle;
 pub const ChdbIterator = chdb_zig.ChdbIterator;
+pub const ChdbConnectionOptions = chdb_zig.ChdbConnectionOptions;
 
 pub const initConnection = ChdbConnection.init;
