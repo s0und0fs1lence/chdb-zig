@@ -23,16 +23,7 @@ pub fn main() !void {
         \\ ORDER BY tuple() -- Adjust the ordering key as needed for performance
         \\ AS SELECT * FROM url('https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_0.parquet');
     ;
-    var result = try cHandle.query(@constCast(query));
-    if (!result.isSuccess()) {
-        std.debug.print("Query failed: {?s}\n", .{result.getError()});
-        @panic("ERROR");
-    }
-    std.debug.print("Insert Elapsed time: {d}\n", .{result.elapsedTime()});
-    std.debug.print("Insert Rows read: {d}\n", .{result.rowsRead()});
-    std.debug.print("Insert storage Rows read: {d}\n", .{result.storageRowsRead()});
-    std.debug.print("Insert Bytes read: {d}\n", .{result.bytesRead()});
-    std.debug.print("Insert storage Bytes read: {d}\n", .{result.storageBytesRead()});
+    try cHandle.execute(@constCast(query));
 
     var result2 = try cHandle.query(@constCast("SELECT URL, COUNT(*) FROM my_parquet_table group by URL order by COUNT(*) desc LIMIT 10"));
     if (!result2.isSuccess()) {

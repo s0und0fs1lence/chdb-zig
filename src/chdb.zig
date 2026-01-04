@@ -110,6 +110,22 @@ pub const ChdbConnection = struct {
         return ChdbResult{ .res = result };
     }
 
+    pub fn execute(self: *ChdbConnection, sql: []u8) ChdbError!void {
+        const c_sql = self.allocator.dupeZ(u8, sql) catch return ChdbError.AllocatorOutOfMemory;
+        defer self.allocator.free(c_sql);
+
+        const result = chdb_headers.chdb_query(self.conn.*, c_sql.ptr, self.defaultFormat.ptr);
+        if (result == null) {
+            return ChdbError.QueryFailed;
+        }
+        var chResult = ChdbResult{ .res = result };
+        defer chResult.deinit();
+        if (!chResult.isSuccess()) {
+            return ChdbError.QueryFailed;
+        }
+        return;
+    }
+
     pub fn queryStreaming(self: *ChdbConnection, sql: []u8) ChdbError!ChdbStreamingHandle {
         const c_sql = self.allocator.dupeZ(u8, sql) catch return ChdbError.AllocatorOutOfMemory;
         defer self.allocator.free(c_sql);
