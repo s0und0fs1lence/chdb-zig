@@ -527,4 +527,152 @@ pub const ChdbIterator = struct {
     pub fn rowCount(self: *ChdbIterator) usize {
         return self._rowCount;
     }
+
+    /// Peek at the next row without advancing the iterator
+    /// Returns null if no more rows
+    pub fn peekRow(self: *ChdbIterator) ?[]const u8 {
+        var temp_iter = self.iter;
+        while (temp_iter.next()) |line| {
+            if (line.len == 0) continue;
+            return line;
+        }
+        return null;
+    }
+
+    /// Check if there are more rows to iterate
+    pub fn hasNextRow(self: *ChdbIterator) bool {
+        return self.peekRow() != null;
+    }
+
+    /// Get the current iteration index (0-based)
+    pub fn getCurrentIndex(self: *ChdbIterator) usize {
+        return self.currentIndex;
+    }
+
+    /// Collect all remaining rows as owned slices (zero-copy)
+    pub fn collectAllOwned(self: *ChdbIterator) ChdbError![]const []const u8 {
+        var rows: std.ArrayList([]const u8) = .{};
+        defer rows.deinit(self.allocator);
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            rows.append(self.allocator, line) catch return ChdbError.AllocatorOutOfMemory;
+        }
+        const res = rows.toOwnedSlice(self.allocator) catch return ChdbError.AllocatorOutOfMemory;
+        return res;
+    }
+
+    /// Collect all remaining rows parsed as type T
+    pub fn collectAllAsOwned(self: *ChdbIterator, comptime T: type) ChdbError!ChdbResultValue(T) {
+        const arena = try self.getArenaAllocator();
+        const arena_allocator = arena.allocator();
+        var rows: std.ArrayList(T) = .{};
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            const parsed = std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true }) catch {
+                return ChdbError.InvalidResult;
+            };
+            rows.append(arena_allocator, parsed.value) catch return ChdbError.AllocatorOutOfMemory;
+        }
+        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        return .{
+            .data = .{ .slice = res },
+            ._arena = arena,
+        };
+    }
+
+    /// Iterate over each remaining row without allocating
+    /// Callback is called for each row
+    pub fn forEachRow(self: *ChdbIterator, callback: fn ([]const u8) void) void {
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            self.currentIndex += 1;
+            callback(line);
+        }
+    }
+
+    /// Iterate over each remaining row parsed as type T
+    /// Callback is called for each parsed row. Can return errors.
+    pub fn forEachRowAs(self: *ChdbIterator, comptime T: type, callback: fn (T) ChdbError!void) ChdbError!void {
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            self.currentIndex += 1;
+            const parsed = std.json.parseFromSlice(T, self.allocator, line, .{ .ignore_unknown_fields = true }) catch {
+                return ChdbError.InvalidResult;
+            };
+            defer parsed.deinit();
+            try callback(parsed.value);
+        }
+    }
+
+    /// Count rows matching the predicate
+    pub fn countMatching(self: *ChdbIterator, predicate: fn ([]const u8) bool) usize {
+        var count: usize = 0;
+        self.reset();
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            if (predicate(line)) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    /// Check if any row matches the predicate (short-circuits on first match)
+    pub fn anyMatch(self: *ChdbIterator, predicate: fn ([]const u8) bool) bool {
+        self.reset();
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            if (predicate(line)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Check if all rows match the predicate (short-circuits on first mismatch)
+    pub fn allMatch(self: *ChdbIterator, predicate: fn ([]const u8) bool) bool {
+        self.reset();
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            if (!predicate(line)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Skip N rows, returns the number of rows actually skipped
+    pub fn skipRows(self: *ChdbIterator, count: usize) usize {
+        var skipped: usize = 0;
+        while (skipped < count and self.iter.next() != null) {
+            skipped += 1;
+        }
+        self.currentIndex += skipped;
+        return skipped;
+    }
+
+    /// Find and return the first row matching the predicate, parsed as type T
+    pub fn findFirstAs(self: *ChdbIterator, comptime T: type, predicate: fn (T) bool) ChdbError!?ChdbResultValue(T) {
+        while (self.iter.next()) |line| {
+            if (line.len == 0) continue;
+            self.currentIndex += 1;
+
+            const parsed = std.json.parseFromSlice(T, self.allocator, line, .{ .ignore_unknown_fields = true }) catch {
+                continue;
+            };
+
+            if (predicate(parsed.value)) {
+                const arena = try self.getArenaAllocator();
+                const arena_allocator = arena.allocator();
+                const cloned = try std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true });
+                parsed.deinit();
+                return .{
+                    .data = .{ .single = cloned.value },
+                    ._arena = arena,
+                };
+            }
+            parsed.deinit();
+        }
+        return null;
+    }
 };
