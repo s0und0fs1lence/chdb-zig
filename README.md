@@ -104,6 +104,51 @@ After executing a query, you get a `ChdbResult` object with the following method
 - `storageRowsRead()` - Rows read from disk
 - `storageBytesRead()` - Bytes read from disk
 
+### Iterator Methods
+
+The iterator returned by `result.iter()` provides several methods for traversing and processing query results. For optimal performance with multiple allocations, use an arena allocator:
+
+```zig
+var arena = std.heap.ArenaAllocator.init(allocator);
+defer arena.deinit();
+
+var iter = result.iter(arena.allocator());
+```
+
+**Basic Iteration:**
+
+- `nextRow()` - Get next row as a raw slice (zero-copy, no allocation)
+- `nextAs(T)` - Get next row parsed as type T (allocates)
+- `rowCount()` - Total number of rows in result
+- `reset()` - Reset iterator to beginning
+- `rowAt(index)` - dGet row at specific inex (zero-copy)
+- `maxMemoryUsage()` - Maximum memory needed for results
+
+**Batch Operations:**
+
+- `takeOwned(count)` - Take next N rows (allocates owned slice)
+- `takeAsOwned(T, count)` - Take next N rows parsed as type T
+- `sliceOwned(start, end)` - Get rows in range as owned slice
+- `sliceAsOwned(T, start, end)` - Get rows in range parsed as type T
+- `selectOwned(predicate)` - Filter rows with predicate function
+- `selectAsOwned(T, predicate)` - Filter and parse rows with predicate
+
+**Arena Allocators:**
+
+Methods ending in `Owned` or using generic type parsing (`As`) perform allocations. For best performance, pass an arena allocator to `iter()`. This allows all allocations to be freed in a single call to `deinit()`, rather than fragmenting memory with individual allocations:
+
+```zig
+// Good - all allocations freed together
+var arena = std.heap.ArenaAllocator.init(allocator);
+defer arena.deinit();
+
+var iter = result.iter(arena.allocator());
+const rows = try iter.takeAsOwned(User, 100);
+// rows is valid until arena.deinit()
+```
+
+Without an arena, allocations may fragment memory and you'll need to manage cleanup individually.
+
 ## Memory Management
 
 This library uses Zig's allocator pattern. You should always defer cleanup:
