@@ -10,3 +10,11 @@ pub const ChdbIterator = chdb_zig.ChdbIterator;
 pub const ChdbConnectionOptions = chdb_zig.ChdbConnectionOptions;
 
 pub const initConnection = ChdbConnection.init;
+
+test "basic connection initialization" {
+    const allocator = std.testing.allocator;
+    const options = chdb_zig.ChdbConnectionOptions{ .UseMultiQuery = true };
+    const cHandle = try chdb_zig.ChdbConnection.init(allocator, options);
+    defer cHandle.deinit();
+    try std.testing.expect(cHandle.conn != null);
+}

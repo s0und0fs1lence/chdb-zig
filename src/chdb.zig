@@ -18,6 +18,14 @@ pub const ChdbConnectionOptions = struct {
     // Future options can be added here
     UseMultiQuery: bool = false,
     Path: ?[]const u8 = null,
+    ConfigFilePath: ?[]const u8 = null,
+    LogLevel: ?[]const u8 = null,
+    /// Custom argument.
+    ///
+    /// "--param=value" is the format accepted
+    /// We should tell user where to look for officially supported arguments.
+    /// Here is some hint for now: <https://github.com/fixcik/chdb-rs/blob/master/OPTIONS.md>.
+    CustomArgs: ?[]const []const u8 = null,
 };
 
 pub const ChdbConnection = struct {
@@ -41,14 +49,28 @@ pub const ChdbConnection = struct {
         lst.append(allocator, @constCast("chdb")) catch return ChdbError.AllocatorOutOfMemory;
 
         if (options.Path) |path| {
-            const duped_path = allocator.dupeZ(u8, path) catch return ChdbError.AllocatorOutOfMemory;
-            allocated_strings.append(allocator, duped_path) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
-
-            lst.append(allocator, @constCast("--path")) catch return ChdbError.AllocatorOutOfMemory;
-            lst.append(allocator, @constCast(duped_path)) catch return ChdbError.AllocatorOutOfMemory;
+            const duped: [:0]u8 = std.fmt.allocPrintSentinel(allocator, "--path={s}", .{path}, 0) catch return ChdbError.AllocatorOutOfMemory;
+            allocated_strings.append(allocator, duped) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
+            lst.append(allocator, @constCast(duped)) catch return ChdbError.AllocatorOutOfMemory;
         }
         if (options.UseMultiQuery) {
             lst.append(allocator, @constCast("--multiquery")) catch return ChdbError.AllocatorOutOfMemory;
+        }
+        if (options.LogLevel) |level| {
+            const duped: [:0]u8 = std.fmt.allocPrintSentinel(allocator, "--log-level={s}", .{level}, 0) catch return ChdbError.AllocatorOutOfMemory;
+
+            allocated_strings.append(allocator, duped) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
+
+            lst.append(allocator, @constCast(duped)) catch return ChdbError.AllocatorOutOfMemory;
+        }
+
+        if (options.CustomArgs) |customArgs| {
+            for (customArgs) |arg| {
+                const duped = allocator.dupeZ(u8, arg) catch return ChdbError.AllocatorOutOfMemory;
+                allocated_strings.append(allocator, duped) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
+
+                lst.append(allocator, @constCast(duped)) catch return ChdbError.AllocatorOutOfMemory;
+            }
         }
 
         // Now when we call this, duped_path is still valid memory

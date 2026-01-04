@@ -30,7 +30,10 @@ pub fn main() !void {
     }
     std.debug.print("Insert Elapsed time: {d}\n", .{result.elapsedTime()});
     std.debug.print("Insert Rows read: {d}\n", .{result.rowsRead()});
+    std.debug.print("Insert storage Rows read: {d}\n", .{result.storageRowsRead()});
     std.debug.print("Insert Bytes read: {d}\n", .{result.bytesRead()});
+    std.debug.print("Insert storage Bytes read: {d}\n", .{result.storageBytesRead()});
+
     var result2 = try cHandle.query(@constCast("SELECT URL, COUNT(*) FROM my_parquet_table group by URL order by COUNT(*) desc LIMIT 10"));
     if (!result2.isSuccess()) {
         std.debug.print("Query failed: {?s}\n", .{result2.getError()});
@@ -42,8 +45,10 @@ pub fn main() !void {
     if (slice) |s| {
         std.debug.print("Got a row! {s}\n", .{s});
         std.debug.print("Elapsed time: {d}\n", .{result2.elapsedTime()});
+        std.debug.print("Storage Rows Read: {d}\n", .{result2.storageRowsRead()});
         std.debug.print("Rows read: {d}\n", .{result2.rowsRead()});
         std.debug.print("Bytes read: {d}\n", .{result2.bytesRead()});
+        std.debug.print("Storage Bytes read: {d}\n", .{result2.storageBytesRead()});
     } else {
         std.debug.print("No rows found.\n", .{});
     }
