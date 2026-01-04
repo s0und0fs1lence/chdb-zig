@@ -24,16 +24,15 @@ pub fn main() !void {
         .UseMultiQuery = true,
         .Path = "my_database.db",
     };
-    
+
     const conn = try chdb_zig.initConnection(allocator, options);
     defer conn.deinit();
 
     // Create a table
-    try conn.execute(@constCast(
-        "CREATE TABLE IF NOT EXISTS test (id Int32, name String) " ++
-        "ENGINE = MergeTree() ORDER BY id"
-    ));
+    try conn.execute(@constCast("CREATE TABLE IF NOT EXISTS test (id Int32, name String) " ++
+        "ENGINE = MergeTree() ORDER BY id"));
 
+    try conn.execute(@constCast("INSERT INTO test (id,name) VALUES (1,'Alice'), (2,'Bob')"));
     // Query the database
     var result = try conn.query(@constCast("SELECT * FROM test"));
     if (!result.isSuccess()) {

@@ -76,7 +76,6 @@ pub const ChdbConnection = struct {
         // Now when we call this, duped_path is still valid memory
         const conn = chdb_headers.chdb_connect(@intCast(lst.items.len), lst.items.ptr);
         if (conn == null) {
-            allocator.destroy(instance);
             return ChdbError.ConnectionFailed;
         }
         instance.conn = conn;
@@ -96,6 +95,7 @@ pub const ChdbConnection = struct {
             chdb_headers.chdb_close_conn(self.conn);
             self.conn = null;
         }
+        self.allocator.free(self.defaultFormat);
         self.allocator.destroy(self);
     }
 
@@ -121,6 +121,7 @@ pub const ChdbConnection = struct {
         var chResult = ChdbResult{ .res = result };
         defer chResult.deinit();
         if (!chResult.isSuccess()) {
+            std.log.err("QUERY FAILED: {?s}\n", .{chResult.getError()});
             return ChdbError.QueryFailed;
         }
         return;
