@@ -403,20 +403,24 @@ pub const ChdbIterator = struct {
         return null;
     }
 
-    pub fn sliceOwned(self: *ChdbIterator, start: usize, end: usize) ChdbError!ChdbResultValue([]const []const u8) {
-        var rows: std.ArrayList([]const u8) = .{};
-        defer rows.deinit(self.allocator);
+    pub fn sliceOwned(self: *ChdbIterator, start: usize, end: usize) ChdbError!ChdbResultValue([]const u8) {
+        const arena = try self.getArenaAllocator();
+        const arena_allocator = arena.allocator();
+        var rows: std.ArrayList([]const u8) = .empty;
         self.reset();
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             if (self.currentIndex >= start and self.currentIndex < end) {
-                rows.append(self.allocator, line) catch ChdbError.AllocatorOutOfMemory;
+                rows.append(arena_allocator, line) catch return ChdbError.AllocatorOutOfMemory;
             }
             self.currentIndex += 1;
             if (self.currentIndex >= end) break;
         }
-        const res = rows.toOwnedSlice(self.allocator) catch return ChdbError.AllocatorOutOfMemory;
-        return res;
+        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        return .{
+            .data = .{ .slice = res },
+            ._arena = arena,
+        };
     }
 
     pub fn sliceAsOwned(self: *ChdbIterator, comptime T: type, start: usize, end: usize) ChdbError!ChdbResultValue(T) {
@@ -460,17 +464,17 @@ pub const ChdbIterator = struct {
         return res;
     }
 
-    pub fn takeAsOwned(self: *ChdbIterator, comptime T: type, count: usize) ChdbError![]T {
-        var rows = std.ArrayList(T).initCapacity(self.allocator, count) catch return ChdbError.AllocatorOutOfMemory;
-        defer rows.deinit(self.allocator);
+    pub fn takeAsOwned(self: *ChdbIterator, comptime T: type, count: usize) ChdbError!ChdbResultValue(T) {
+        const arena = try self.getArenaAllocator();
+        const arena_allocator = arena.allocator();
+        var rows = std.ArrayList(T).initCapacity(arena_allocator, count) catch return ChdbError.AllocatorOutOfMemory;
         var taken: usize = 0;
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             if (taken < count) {
-                const parsed = std.json.parseFromSlice(T, self.allocator, line, .{ .ignore_unknown_fields = true }) catch {
+                const parsed = std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true }) catch {
                     return ChdbError.InvalidResult;
                 };
-                defer parsed.deinit();
 
                 rows.appendAssumeCapacity(parsed.value);
                 taken += 1;
@@ -478,8 +482,11 @@ pub const ChdbIterator = struct {
                 break;
             }
         }
-        const res = rows.toOwnedSlice(self.allocator) catch return ChdbError.AllocatorOutOfMemory;
-        return res;
+        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        return .{
+            .data = .{ .slice = res },
+            ._arena = arena,
+        };
     }
 
     pub fn selectOwned(self: *ChdbIterator, predicate: fn ([]const u8) bool) ChdbError![]const []const u8 {
@@ -496,22 +503,25 @@ pub const ChdbIterator = struct {
         return res;
     }
 
-    pub fn selectAsOwned(self: *ChdbIterator, comptime T: type, predicate: fn (T) bool) ChdbError![]T {
+    pub fn selectAsOwned(self: *ChdbIterator, comptime T: type, predicate: fn (T) bool) ChdbError!ChdbResultValue(T) {
+        const arena = try self.getArenaAllocator();
+        const arena_allocator = arena.allocator();
         var rows: std.ArrayList(T) = .{};
-        defer rows.deinit(self.allocator);
         self.reset();
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
-            const parsed = std.json.parseFromSlice(T, self.allocator, line, .{ .ignore_unknown_fields = true }) catch {
+            const parsed = std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true }) catch {
                 return ChdbError.InvalidResult;
             };
-            defer parsed.deinit();
             if (predicate(parsed.value)) {
-                rows.append(self.allocator, parsed.value) catch break;
+                rows.append(arena_allocator, parsed.value) catch break;
             }
         }
-        const res = rows.toOwnedSlice(self.allocator) catch return ChdbError.AllocatorOutOfMemory;
-        return res;
+        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        return .{
+            .data = .{ .slice = res },
+            ._arena = arena,
+        };
     }
 
     pub fn rowCount(self: *ChdbIterator) usize {
