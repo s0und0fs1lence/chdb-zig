@@ -5,7 +5,7 @@ const chdb_headers = @cImport({
     @cInclude("chdb.h");
 });
 
-pub const ChdbError = error{
+pub const Error = error{
     AllocatorOutOfMemory,
     ConnectionFailed,
     QueryFailed,
@@ -14,7 +14,7 @@ pub const ChdbError = error{
     // Add more error cases as needed
 };
 
-pub const ChdbConnectionOptions = struct {
+pub const ConnectionOptions = struct {
     // Future options can be added here
     UseMultiQuery: bool = false,
     Path: ?[]const u8 = null,
@@ -28,13 +28,13 @@ pub const ChdbConnectionOptions = struct {
     CustomArgs: ?[]const []const u8 = null,
 };
 
-pub const ChdbConnection = struct {
+pub const Connection = struct {
     conn: [*c][*c]chdb_headers.struct_chdb_connection_,
     allocator: Allocator,
     // At the moment, only JSONEachRow is supported
     defaultFormat: [:0]u8,
-    pub fn init(allocator: Allocator, options: ChdbConnectionOptions) ChdbError!*ChdbConnection {
-        var instance = allocator.create(ChdbConnection) catch return ChdbError.AllocatorOutOfMemory;
+    pub fn init(allocator: Allocator, options: ConnectionOptions) Error!*Connection {
+        var instance = allocator.create(Connection) catch return Error.AllocatorOutOfMemory;
         instance.allocator = allocator;
         errdefer allocator.destroy(instance);
         // Track duplicated strings so we can free them later
@@ -46,51 +46,51 @@ pub const ChdbConnection = struct {
             lst.deinit(allocator);
         }
 
-        lst.append(allocator, @constCast("chdb")) catch return ChdbError.AllocatorOutOfMemory;
+        lst.append(allocator, @constCast("chdb")) catch return Error.AllocatorOutOfMemory;
 
         if (options.Path) |path| {
-            const duped: [:0]u8 = std.fmt.allocPrintSentinel(allocator, "--path={s}", .{path}, 0) catch return ChdbError.AllocatorOutOfMemory;
-            allocated_strings.append(allocator, duped) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
-            lst.append(allocator, @constCast(duped)) catch return ChdbError.AllocatorOutOfMemory;
+            const duped: [:0]u8 = std.fmt.allocPrintSentinel(allocator, "--path={s}", .{path}, 0) catch return Error.AllocatorOutOfMemory;
+            allocated_strings.append(allocator, duped) catch return Error.AllocatorOutOfMemory; // Save for cleanup later
+            lst.append(allocator, @constCast(duped)) catch return Error.AllocatorOutOfMemory;
         }
         if (options.UseMultiQuery) {
-            lst.append(allocator, @constCast("--multiquery")) catch return ChdbError.AllocatorOutOfMemory;
+            lst.append(allocator, @constCast("--multiquery")) catch return Error.AllocatorOutOfMemory;
         }
         if (options.LogLevel) |level| {
-            const duped: [:0]u8 = std.fmt.allocPrintSentinel(allocator, "--log-level={s}", .{level}, 0) catch return ChdbError.AllocatorOutOfMemory;
+            const duped: [:0]u8 = std.fmt.allocPrintSentinel(allocator, "--log-level={s}", .{level}, 0) catch return Error.AllocatorOutOfMemory;
 
-            allocated_strings.append(allocator, duped) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
+            allocated_strings.append(allocator, duped) catch return Error.AllocatorOutOfMemory; // Save for cleanup later
 
-            lst.append(allocator, @constCast(duped)) catch return ChdbError.AllocatorOutOfMemory;
+            lst.append(allocator, @constCast(duped)) catch return Error.AllocatorOutOfMemory;
         }
 
         if (options.CustomArgs) |customArgs| {
             for (customArgs) |arg| {
-                const duped = allocator.dupeZ(u8, arg) catch return ChdbError.AllocatorOutOfMemory;
-                allocated_strings.append(allocator, duped) catch return ChdbError.AllocatorOutOfMemory; // Save for cleanup later
+                const duped = allocator.dupeZ(u8, arg) catch return Error.AllocatorOutOfMemory;
+                allocated_strings.append(allocator, duped) catch return Error.AllocatorOutOfMemory; // Save for cleanup later
 
-                lst.append(allocator, @constCast(duped)) catch return ChdbError.AllocatorOutOfMemory;
+                lst.append(allocator, @constCast(duped)) catch return Error.AllocatorOutOfMemory;
             }
         }
 
         // Now when we call this, duped_path is still valid memory
         const conn = chdb_headers.chdb_connect(@intCast(lst.items.len), lst.items.ptr);
         if (conn == null) {
-            return ChdbError.ConnectionFailed;
+            return Error.ConnectionFailed;
         }
         instance.conn = conn;
-        instance.defaultFormat = allocator.dupeZ(u8, "JSONEachRow") catch return ChdbError.AllocatorOutOfMemory;
+        instance.defaultFormat = allocator.dupeZ(u8, "JSONEachRow") catch return Error.AllocatorOutOfMemory;
 
         return instance;
     }
 
     // Currently only JSONEachRow is supported, but this is a placeholder for future formats
-    pub fn setDefaultFormat(self: *ChdbConnection, format: []u8) void {
+    pub fn setDefaultFormat(self: *Connection, format: []u8) void {
         _ = self;
         _ = format;
     }
 
-    pub fn deinit(self: *ChdbConnection) void {
+    pub fn deinit(self: *Connection) void {
         if (self.conn != null) {
             chdb_headers.chdb_close_conn(self.conn);
             self.conn = null;
@@ -99,71 +99,71 @@ pub const ChdbConnection = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn query(self: *ChdbConnection, sql: []u8) ChdbError!ChdbResult {
-        const c_sql = self.allocator.dupeZ(u8, sql) catch return ChdbError.AllocatorOutOfMemory;
+    pub fn query(self: *Connection, sql: []u8) Error!Result {
+        const c_sql = self.allocator.dupeZ(u8, sql) catch return Error.AllocatorOutOfMemory;
         defer self.allocator.free(c_sql);
 
         const result = chdb_headers.chdb_query(self.conn.*, c_sql.ptr, self.defaultFormat.ptr);
         if (result == null) {
-            return ChdbError.QueryFailed;
+            return Error.QueryFailed;
         }
-        return ChdbResult{ .res = result };
+        return Result{ .res = result };
     }
 
-    pub fn execute(self: *ChdbConnection, sql: []u8) ChdbError!void {
-        const c_sql = self.allocator.dupeZ(u8, sql) catch return ChdbError.AllocatorOutOfMemory;
+    pub fn execute(self: *Connection, sql: []u8) Error!void {
+        const c_sql = self.allocator.dupeZ(u8, sql) catch return Error.AllocatorOutOfMemory;
         defer self.allocator.free(c_sql);
 
         const result = chdb_headers.chdb_query(self.conn.*, c_sql.ptr, self.defaultFormat.ptr);
         if (result == null) {
-            return ChdbError.QueryFailed;
+            return Error.QueryFailed;
         }
-        var chResult = ChdbResult{ .res = result };
+        var chResult = Result{ .res = result };
         defer chResult.deinit();
         if (!chResult.isSuccess()) {
             std.log.err("QUERY FAILED: {?s}\n", .{chResult.getError()});
-            return ChdbError.QueryFailed;
+            return Error.QueryFailed;
         }
         return;
     }
 
-    pub fn queryStreaming(self: *ChdbConnection, sql: []u8) ChdbError!ChdbStreamingHandle {
-        const c_sql = self.allocator.dupeZ(u8, sql) catch return ChdbError.AllocatorOutOfMemory;
+    pub fn queryStreaming(self: *Connection, sql: []u8) Error!StreamingHandle {
+        const c_sql = self.allocator.dupeZ(u8, sql) catch return Error.AllocatorOutOfMemory;
         defer self.allocator.free(c_sql);
 
         const result = chdb_headers.chdb_stream_query(self.conn.*, c_sql.ptr, self.defaultFormat.ptr);
         if (result == null) {
-            return ChdbError.QueryFailed;
+            return Error.QueryFailed;
         }
-        return ChdbStreamingHandle{ .handle = result };
+        return StreamingHandle{ .handle = result };
     }
 
-    pub fn nextStreamingChunk(self: *ChdbConnection, result: *ChdbStreamingHandle) ChdbError!ChdbResult {
+    pub fn nextStreamingChunk(self: *Connection, result: *StreamingHandle) Error!Result {
         const res = chdb_headers.chdb_stream_fetch_result(self.conn.*, result.handle);
         if (res == null) {
-            return ChdbError.QueryFailed;
+            return Error.QueryFailed;
         }
-        return ChdbResult{ .res = res };
+        return Result{ .res = res };
     }
 
-    pub fn closeStreaming(self: *ChdbConnection, result: *ChdbStreamingHandle) void {
+    pub fn closeStreaming(self: *Connection, result: *StreamingHandle) void {
         if (result.handle != null) {
             chdb_headers.chdb_stream_cancel_query(self.conn.*, result.handle);
         }
     }
 };
 
-pub const ChdbStreamingHandle = struct {
+pub const StreamingHandle = struct {
     handle: [*c]chdb_headers.struct_chdb_result_,
 
-    pub fn deinit(self: *ChdbStreamingHandle) void {
+    pub fn deinit(self: *StreamingHandle) void {
         if (self.handle != null) {
             chdb_headers.chdb_destroy_query_result(self.handle);
             self.handle = null;
         }
     }
 
-    pub fn getError(self: *ChdbStreamingHandle) ?[]const u8 {
+    pub fn getError(self: *StreamingHandle) ?[]const u8 {
         if (self.handle == null) {
             return null;
         }
@@ -174,7 +174,7 @@ pub const ChdbStreamingHandle = struct {
         return std.mem.span(err);
     }
 
-    pub fn isSuccess(self: *ChdbStreamingHandle) bool {
+    pub fn isSuccess(self: *StreamingHandle) bool {
         if (self.handle == null) {
             return false;
         }
@@ -182,17 +182,17 @@ pub const ChdbStreamingHandle = struct {
     }
 };
 
-pub const ChdbResult = struct {
+pub const Result = struct {
     res: [*c]chdb_headers.struct_chdb_result_,
 
-    pub fn deinit(self: *ChdbResult) void {
+    pub fn deinit(self: *Result) void {
         if (self.res != null) {
             chdb_headers.chdb_destroy_query_result(self.res);
             self.res = null;
         }
     }
 
-    pub fn data(self: *ChdbResult) []u8 {
+    pub fn data(self: *Result) []u8 {
         if (self.res == null) {
             return &[_]u8{};
         }
@@ -209,53 +209,53 @@ pub const ChdbResult = struct {
     /// The iterator returns rows as slices of the original buffer (zero-copy)
     /// But it can allocate a json parser if needed
     /// Pass an arena allocator for best performance, otherwise free each row manually
-    pub fn iter(self: *ChdbResult, arena: Allocator) ChdbIterator {
-        return ChdbIterator.init(self, arena);
+    pub fn iter(self: *Result, arena: Allocator) Iterator {
+        return Iterator.init(self, arena);
     }
 
-    pub fn size(self: *ChdbResult) usize {
+    pub fn size(self: *Result) usize {
         if (self.res == null) {
             return 0;
         }
         return chdb_headers.chdb_result_length(self.res);
     }
 
-    pub fn elapsedTime(self: *ChdbResult) f64 {
+    pub fn elapsedTime(self: *Result) f64 {
         if (self.res == null) {
             return 0.0;
         }
         return chdb_headers.chdb_result_elapsed(self.res);
     }
 
-    pub fn rowsRead(self: *ChdbResult) u64 {
+    pub fn rowsRead(self: *Result) u64 {
         if (self.res == null) {
             return 0;
         }
         return chdb_headers.chdb_result_rows_read(self.res);
     }
 
-    pub fn bytesRead(self: *ChdbResult) u64 {
+    pub fn bytesRead(self: *Result) u64 {
         if (self.res == null) {
             return 0;
         }
         return chdb_headers.chdb_result_bytes_read(self.res);
     }
 
-    pub fn storageRowsRead(self: *ChdbResult) u64 {
+    pub fn storageRowsRead(self: *Result) u64 {
         if (self.res == null) {
             return 0;
         }
         return chdb_headers.chdb_result_storage_rows_read(self.res);
     }
 
-    pub fn storageBytesRead(self: *ChdbResult) u64 {
+    pub fn storageBytesRead(self: *Result) u64 {
         if (self.res == null) {
             return 0;
         }
         return chdb_headers.chdb_result_storage_bytes_read(self.res);
     }
 
-    pub fn getError(self: *ChdbResult) ?[]const u8 {
+    pub fn getError(self: *Result) ?[]const u8 {
         if (self.res == null) {
             return null;
         }
@@ -266,7 +266,7 @@ pub const ChdbResult = struct {
         return std.mem.span(err);
     }
 
-    pub fn isSuccess(self: *ChdbResult) bool {
+    pub fn isSuccess(self: *Result) bool {
         if (self.res == null) {
             return false;
         }
@@ -275,7 +275,7 @@ pub const ChdbResult = struct {
 };
 
 /// The Data itself (The Union)
-pub fn ChdbData(comptime T: type) type {
+pub fn Data(comptime T: type) type {
     return union(enum) {
         single: T,
         slice: []T,
@@ -283,9 +283,9 @@ pub fn ChdbData(comptime T: type) type {
 }
 
 /// The Result Wrapper (The Struct)
-pub fn ChdbResultValue(comptime T: type) type {
+pub fn ResultValue(comptime T: type) type {
     return struct {
-        data: ChdbData(T),
+        data: Data(T),
         _arena: *std.heap.ArenaAllocator,
 
         pub fn deinit(self: @This()) void {
@@ -306,7 +306,7 @@ pub fn ChdbResultValue(comptime T: type) type {
 }
 
 //NDJSON iterator for ChdbResult
-pub const ChdbIterator = struct {
+pub const Iterator = struct {
     // We store the raw buffer and use an iterator that doesn't allocate
     iter: std.mem.SplitIterator(u8, .scalar),
     _rowCount: usize,
@@ -314,10 +314,10 @@ pub const ChdbIterator = struct {
     allocator: Allocator,
     dataSizeInBytes: usize,
 
-    pub fn init(result: *ChdbResult, allocator: Allocator) ChdbIterator {
+    pub fn init(result: *Result, allocator: Allocator) Iterator {
         const data_buf = result.data();
         if (data_buf.len == 0) {
-            return ChdbIterator{
+            return Iterator{
                 .iter = std.mem.splitScalar(u8, "", '\n'),
                 ._rowCount = 0,
                 .currentIndex = 0,
@@ -336,7 +336,7 @@ pub const ChdbIterator = struct {
         // Handle files that don't end in a trailing newline
         if (data_buf[data_buf.len - 1] != '\n') count += 1;
 
-        return ChdbIterator{
+        return Iterator{
             .iter = std.mem.splitScalar(u8, data_buf, '\n'),
             ._rowCount = count,
             .currentIndex = 0,
@@ -345,12 +345,12 @@ pub const ChdbIterator = struct {
         };
     }
 
-    pub fn maxMemoryUsage(self: *ChdbIterator) usize {
+    pub fn maxMemoryUsage(self: *Iterator) usize {
         return self.dataSizeInBytes * 2;
     }
 
-    fn getArenaAllocator(self: *ChdbIterator) ChdbError!*std.heap.ArenaAllocator {
-        var arena = self.allocator.create(std.heap.ArenaAllocator) catch return ChdbError.AllocatorOutOfMemory;
+    fn getArenaAllocator(self: *Iterator) Error!*std.heap.ArenaAllocator {
+        var arena = self.allocator.create(std.heap.ArenaAllocator) catch return Error.AllocatorOutOfMemory;
         arena.* = std.heap.ArenaAllocator.init(self.allocator);
         errdefer {
             arena.deinit();
@@ -360,7 +360,7 @@ pub const ChdbIterator = struct {
     }
 
     /// Returns the next row as a slice of the original buffer (Zero-copy)
-    pub fn nextRow(self: *ChdbIterator) ?[]const u8 {
+    pub fn nextRow(self: *Iterator) ?[]const u8 {
         while (self.iter.next()) |line| {
             // Chdb sometimes leaves empty lines at the end of NDJSON
             if (line.len == 0) continue;
@@ -371,7 +371,7 @@ pub const ChdbIterator = struct {
         return null;
     }
 
-    pub fn nextAs(self: *ChdbIterator, comptime T: type) ChdbError!?ChdbResultValue(T) {
+    pub fn nextAs(self: *Iterator, comptime T: type) Error!?ResultValue(T) {
         const line = self.nextRow() orelse return null;
 
         const arena = try self.getArenaAllocator();
@@ -386,12 +386,12 @@ pub const ChdbIterator = struct {
         };
     }
 
-    pub fn reset(self: *ChdbIterator) void {
+    pub fn reset(self: *Iterator) void {
         self.iter.reset();
         self.currentIndex = 0;
     }
 
-    pub fn rowAt(self: *ChdbIterator, index: usize) ?[]const u8 {
+    pub fn rowAt(self: *Iterator, index: usize) ?[]const u8 {
         self.reset();
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
@@ -403,7 +403,7 @@ pub const ChdbIterator = struct {
         return null;
     }
 
-    pub fn sliceOwned(self: *ChdbIterator, start: usize, end: usize) ChdbError!ChdbResultValue([]const u8) {
+    pub fn sliceOwned(self: *Iterator, start: usize, end: usize) Error!ResultValue([]const u8) {
         const arena = try self.getArenaAllocator();
         const arena_allocator = arena.allocator();
         var rows: std.ArrayList([]const u8) = .empty;
@@ -411,19 +411,19 @@ pub const ChdbIterator = struct {
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             if (self.currentIndex >= start and self.currentIndex < end) {
-                rows.append(arena_allocator, line) catch return ChdbError.AllocatorOutOfMemory;
+                rows.append(arena_allocator, line) catch return Error.AllocatorOutOfMemory;
             }
             self.currentIndex += 1;
             if (self.currentIndex >= end) break;
         }
-        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(arena_allocator) catch return Error.AllocatorOutOfMemory;
         return .{
             .data = .{ .slice = res },
             ._arena = arena,
         };
     }
 
-    pub fn sliceAsOwned(self: *ChdbIterator, comptime T: type, start: usize, end: usize) ChdbError!ChdbResultValue(T) {
+    pub fn sliceAsOwned(self: *Iterator, comptime T: type, start: usize, end: usize) Error!ResultValue(T) {
         const arena = try self.getArenaAllocator();
         const arena_allocator = arena.allocator();
         var rows: std.ArrayList(T) = .{};
@@ -432,48 +432,48 @@ pub const ChdbIterator = struct {
             if (line.len == 0) continue;
             if (self.currentIndex >= start and self.currentIndex < end) {
                 const parsed = std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true }) catch {
-                    return ChdbError.InvalidRow;
+                    return Error.InvalidRow;
                 };
 
-                rows.append(arena_allocator, parsed.value) catch return ChdbError.AllocatorOutOfMemory;
+                rows.append(arena_allocator, parsed.value) catch return Error.AllocatorOutOfMemory;
             }
             self.currentIndex += 1;
             if (self.currentIndex >= end) break;
         }
-        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(arena_allocator) catch return Error.AllocatorOutOfMemory;
         return .{
             .data = .{ .slice = res },
             ._arena = arena,
         };
     }
 
-    pub fn takeOwned(self: *ChdbIterator, count: usize) ChdbError![]const []const u8 {
+    pub fn takeOwned(self: *Iterator, count: usize) Error![]const []const u8 {
         var rows: std.ArrayList([]const u8) = .{};
         defer rows.deinit(self.allocator);
         var taken: usize = 0;
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             if (taken < count) {
-                rows.append(self.allocator, line) catch return ChdbError.AllocatorOutOfMemory;
+                rows.append(self.allocator, line) catch return Error.AllocatorOutOfMemory;
                 taken += 1;
             } else {
                 break;
             }
         }
-        const res = rows.toOwnedSlice(self.allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(self.allocator) catch return Error.AllocatorOutOfMemory;
         return res;
     }
 
-    pub fn takeAsOwned(self: *ChdbIterator, comptime T: type, count: usize) ChdbError!ChdbResultValue(T) {
+    pub fn takeAsOwned(self: *Iterator, comptime T: type, count: usize) Error!ResultValue(T) {
         const arena = try self.getArenaAllocator();
         const arena_allocator = arena.allocator();
-        var rows = std.ArrayList(T).initCapacity(arena_allocator, count) catch return ChdbError.AllocatorOutOfMemory;
+        var rows = std.ArrayList(T).initCapacity(arena_allocator, count) catch return Error.AllocatorOutOfMemory;
         var taken: usize = 0;
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             if (taken < count) {
                 const parsed = std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true }) catch {
-                    return ChdbError.InvalidResult;
+                    return Error.InvalidResult;
                 };
 
                 rows.appendAssumeCapacity(parsed.value);
@@ -482,14 +482,14 @@ pub const ChdbIterator = struct {
                 break;
             }
         }
-        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(arena_allocator) catch return Error.AllocatorOutOfMemory;
         return .{
             .data = .{ .slice = res },
             ._arena = arena,
         };
     }
 
-    pub fn selectOwned(self: *ChdbIterator, predicate: fn ([]const u8) bool) ChdbError![]const []const u8 {
+    pub fn selectOwned(self: *Iterator, predicate: fn ([]const u8) bool) Error![]const []const u8 {
         var rows: std.ArrayList([]const u8) = .{};
         defer rows.deinit(self.allocator);
         self.reset();
@@ -499,11 +499,11 @@ pub const ChdbIterator = struct {
                 rows.append(self.allocator, line) catch break;
             }
         }
-        const res = rows.toOwnedSlice(self.allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(self.allocator) catch return Error.AllocatorOutOfMemory;
         return res;
     }
 
-    pub fn selectAsOwned(self: *ChdbIterator, comptime T: type, predicate: fn (T) bool) ChdbError!ChdbResultValue(T) {
+    pub fn selectAsOwned(self: *Iterator, comptime T: type, predicate: fn (T) bool) Error!ResultValue(T) {
         const arena = try self.getArenaAllocator();
         const arena_allocator = arena.allocator();
         var rows: std.ArrayList(T) = .{};
@@ -511,26 +511,26 @@ pub const ChdbIterator = struct {
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             const parsed = std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true }) catch {
-                return ChdbError.InvalidResult;
+                return Error.InvalidResult;
             };
             if (predicate(parsed.value)) {
                 rows.append(arena_allocator, parsed.value) catch break;
             }
         }
-        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(arena_allocator) catch return Error.AllocatorOutOfMemory;
         return .{
             .data = .{ .slice = res },
             ._arena = arena,
         };
     }
 
-    pub fn rowCount(self: *ChdbIterator) usize {
+    pub fn rowCount(self: *Iterator) usize {
         return self._rowCount;
     }
 
     /// Peek at the next row without advancing the iterator
     /// Returns null if no more rows
-    pub fn peekRow(self: *ChdbIterator) ?[]const u8 {
+    pub fn peekRow(self: *Iterator) ?[]const u8 {
         var temp_iter = self.iter;
         while (temp_iter.next()) |line| {
             if (line.len == 0) continue;
@@ -540,40 +540,40 @@ pub const ChdbIterator = struct {
     }
 
     /// Check if there are more rows to iterate
-    pub fn hasNextRow(self: *ChdbIterator) bool {
+    pub fn hasNextRow(self: *Iterator) bool {
         return self.peekRow() != null;
     }
 
     /// Get the current iteration index (0-based)
-    pub fn getCurrentIndex(self: *ChdbIterator) usize {
+    pub fn getCurrentIndex(self: *Iterator) usize {
         return self.currentIndex;
     }
 
     /// Collect all remaining rows as owned slices (zero-copy)
-    pub fn collectAllOwned(self: *ChdbIterator) ChdbError![]const []const u8 {
+    pub fn collectAllOwned(self: *Iterator) Error![]const []const u8 {
         var rows: std.ArrayList([]const u8) = .{};
         defer rows.deinit(self.allocator);
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
-            rows.append(self.allocator, line) catch return ChdbError.AllocatorOutOfMemory;
+            rows.append(self.allocator, line) catch return Error.AllocatorOutOfMemory;
         }
-        const res = rows.toOwnedSlice(self.allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(self.allocator) catch return Error.AllocatorOutOfMemory;
         return res;
     }
 
     /// Collect all remaining rows parsed as type T
-    pub fn collectAllAsOwned(self: *ChdbIterator, comptime T: type) ChdbError!ChdbResultValue(T) {
+    pub fn collectAllAsOwned(self: *Iterator, comptime T: type) Error!ResultValue(T) {
         const arena = try self.getArenaAllocator();
         const arena_allocator = arena.allocator();
         var rows: std.ArrayList(T) = .{};
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             const parsed = std.json.parseFromSlice(T, arena_allocator, line, .{ .ignore_unknown_fields = true }) catch {
-                return ChdbError.InvalidResult;
+                return Error.InvalidResult;
             };
-            rows.append(arena_allocator, parsed.value) catch return ChdbError.AllocatorOutOfMemory;
+            rows.append(arena_allocator, parsed.value) catch return Error.AllocatorOutOfMemory;
         }
-        const res = rows.toOwnedSlice(arena_allocator) catch return ChdbError.AllocatorOutOfMemory;
+        const res = rows.toOwnedSlice(arena_allocator) catch return Error.AllocatorOutOfMemory;
         return .{
             .data = .{ .slice = res },
             ._arena = arena,
@@ -582,7 +582,7 @@ pub const ChdbIterator = struct {
 
     /// Iterate over each remaining row without allocating
     /// Callback is called for each row
-    pub fn forEachRow(self: *ChdbIterator, callback: fn ([]const u8) void) void {
+    pub fn forEachRow(self: *Iterator, callback: fn ([]const u8) void) void {
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             self.currentIndex += 1;
@@ -592,12 +592,12 @@ pub const ChdbIterator = struct {
 
     /// Iterate over each remaining row parsed as type T
     /// Callback is called for each parsed row. Can return errors.
-    pub fn forEachRowAs(self: *ChdbIterator, comptime T: type, callback: fn (T) ChdbError!void) ChdbError!void {
+    pub fn forEachRowAs(self: *Iterator, comptime T: type, callback: fn (T) Error!void) Error!void {
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             self.currentIndex += 1;
             const parsed = std.json.parseFromSlice(T, self.allocator, line, .{ .ignore_unknown_fields = true }) catch {
-                return ChdbError.InvalidResult;
+                return Error.InvalidResult;
             };
             defer parsed.deinit();
             try callback(parsed.value);
@@ -605,7 +605,7 @@ pub const ChdbIterator = struct {
     }
 
     /// Count rows matching the predicate
-    pub fn countMatching(self: *ChdbIterator, predicate: fn ([]const u8) bool) usize {
+    pub fn countMatching(self: *Iterator, predicate: fn ([]const u8) bool) usize {
         var count: usize = 0;
         self.reset();
         while (self.iter.next()) |line| {
@@ -618,7 +618,7 @@ pub const ChdbIterator = struct {
     }
 
     /// Check if any row matches the predicate (short-circuits on first match)
-    pub fn anyMatch(self: *ChdbIterator, predicate: fn ([]const u8) bool) bool {
+    pub fn anyMatch(self: *Iterator, predicate: fn ([]const u8) bool) bool {
         self.reset();
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
@@ -630,7 +630,7 @@ pub const ChdbIterator = struct {
     }
 
     /// Check if all rows match the predicate (short-circuits on first mismatch)
-    pub fn allMatch(self: *ChdbIterator, predicate: fn ([]const u8) bool) bool {
+    pub fn allMatch(self: *Iterator, predicate: fn ([]const u8) bool) bool {
         self.reset();
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
@@ -642,7 +642,7 @@ pub const ChdbIterator = struct {
     }
 
     /// Skip N rows, returns the number of rows actually skipped
-    pub fn skipRows(self: *ChdbIterator, count: usize) usize {
+    pub fn skipRows(self: *Iterator, count: usize) usize {
         var skipped: usize = 0;
         while (skipped < count and self.iter.next() != null) {
             skipped += 1;
@@ -652,7 +652,7 @@ pub const ChdbIterator = struct {
     }
 
     /// Find and return the first row matching the predicate, parsed as type T
-    pub fn findFirstAs(self: *ChdbIterator, comptime T: type, predicate: fn (T) bool) ChdbError!?ChdbResultValue(T) {
+    pub fn findFirstAs(self: *Iterator, comptime T: type, predicate: fn (T) bool) Error!?ResultValue(T) {
         while (self.iter.next()) |line| {
             if (line.len == 0) continue;
             self.currentIndex += 1;

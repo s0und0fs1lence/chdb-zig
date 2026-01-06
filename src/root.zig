@@ -2,19 +2,19 @@
 const std = @import("std");
 const chdb_zig = @import("chdb.zig");
 
-pub const ChdbConnection = chdb_zig.ChdbConnection;
-pub const ChdbError = chdb_zig.ChdbError;
-pub const ChdbResult = chdb_zig.ChdbResult;
-pub const ChdbStreamingHandle = chdb_zig.ChdbStreamingHandle;
-pub const ChdbIterator = chdb_zig.ChdbIterator;
-pub const ChdbConnectionOptions = chdb_zig.ChdbConnectionOptions;
+pub const Connection = chdb_zig.Connection;
+pub const Error = chdb_zig.Error;
+pub const Result = chdb_zig.Result;
+pub const StreamingHandle = chdb_zig.StreamingHandle;
+pub const Iterator = chdb_zig.Iterator;
+pub const ConnectionOptions = chdb_zig.ConnectionOptions;
 
-pub const initConnection = ChdbConnection.init;
+pub const initConnection = Connection.init;
 
 test "basic connection initialization" {
     const allocator = std.testing.allocator;
-    const options = chdb_zig.ChdbConnectionOptions{ .UseMultiQuery = true };
-    const cHandle = try chdb_zig.ChdbConnection.init(allocator, options);
+    const options = chdb_zig.ConnectionOptions{ .UseMultiQuery = true };
+    const cHandle = try chdb_zig.Connection.init(allocator, options);
     defer cHandle.deinit();
     try std.testing.expect(cHandle.conn != null);
 }
