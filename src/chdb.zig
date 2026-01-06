@@ -192,7 +192,7 @@ pub const Result = struct {
         }
     }
 
-    pub fn data(self: *Result) []u8 {
+    pub fn data(self: *Result) []const u8 {
         if (self.res == null) {
             return &[_]u8{};
         }

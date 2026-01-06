@@ -19,7 +19,7 @@ pub fn main() !void {
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     const allocator = gpa.allocator();
-    const options = chdb_zig.ChdbConnectionOptions{
+    const options = chdb_zig.ConnectionOptions{
         .UseMultiQuery = true,
         .Path = "/workspaces/chdb-zig/test.db",
     };
