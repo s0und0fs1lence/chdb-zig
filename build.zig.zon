@@ -33,19 +33,19 @@
     // internet connectivity.
     .dependencies = .{
         .chdb_linux_aarch64_static = .{
-            .url = "https://github.com/chdb-io/chdb/releases/download/v4.0.0b3/linux-aarch64-libchdb-static.tar.gz",
+            .url = "https://github.com/chdb-io/chdb-core/releases/download/v26.1.0/linux-aarch64-libchdb-static.tar.gz",
             .hash = "N-V-__8AAOKnSFKj76m8cYgLGoCLZT0pK8gid2LDYVLa6zlJ", // sha256
         },
         .chdb_linux_x86_64_static = .{
-            .url = "https://github.com/chdb-io/chdb/releases/download/v4.0.0b3/linux-x86_64-libchdb-static.tar.gz",
+            .url = "https://github.com/chdb-io/chdb-core/releases/download/v26.1.0/linux-x86_64-libchdb-static.tar.gz",
             .hash = "N-V-__8AABAUSVOH78QNsJCkvrUYKnU0VNZLFNGeAgbHPAiA", // sha256
         },
         .chdb_linux_aarch64_dynamic = .{
-            .url = "https://github.com/chdb-io/chdb/releases/download/v4.0.0b3/linux-aarch64-libchdb.tar.gz",
+            .url = "https://github.com/chdb-io/chdb-core/releases/download/v26.1.0/linux-aarch64-libchdb.tar.gz",
             .hash = "N-V-__8AADTLuBh_IUALNkCqrRRQoYUrGf6UHAaqktGWbnCW", // sha256
         },
         .chdb_linux_x86_64_dynamic = .{
-            .url = "https://github.com/chdb-io/chdb/releases/download/v4.0.0b3/linux-x86_64-libchdb.tar.gz",
+            .url = "https://github.com/chdb-io/chdb-core/releases/download/v26.1.0/linux-x86_64-libchdb.tar.gz",
             .hash = "N-V-__8AAPxZWh4zPNfE2sOXuElH4ereRFri51_GWvmKhl4P", // sha256
         },
         // See `zig fetch --save <url>` for a command-line interface for adding dependencies.
